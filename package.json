@@ -1,0 +1,27 @@
+{
+    "name": "just-another-player",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "devDependencies": {
+        "@types/node": "^22.13.5",
+        "@vitejs/plugin-react-swc": "^3.8.0",
+        "preact": "^10.26.4",
+        "sass": "^1.85.0",
+        "typescript": "^5.8.2",
+        "vite": "^6.2.0"
+    },
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "preview": "vite preview",
+        "test": "vitest"
+    },
+    "eslintConfig": {
+        "extends": "./node_modules/preact-scripts/config/eslint.js"
+    },
+    "dependencies": {
+        "hls.js": "^1.5.20",
+        "mux.js": "^6.3.0"
+    }
+}
