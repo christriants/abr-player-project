@@ -11,79 +11,62 @@ type PlayerProps = {
 
 export const Player = ({ src }: PlayerProps) => {
     const videoRef = useRef<HTMLVideoElement>(null);
-
     const [engine, setEngine] = useState<MSEEngine | null>(null);
     const [renditions, setRenditions] = useState<Renditions[]>([]);
 
     const handleQualityChange = async (url: string) => {
         if (!engine || !videoRef.current) return;
 
-        // Remove existing buffer
-        engine.clearBuffer();
+        const targetTime = videoRef.current.currentTime;
 
-        // Fetch new segments for the selected quality
+        await engine.clearBuffer();
+
+        videoRef.current.currentTime = targetTime;
+
         const segmentUrls = await fetchPlaylist(url);
-        engine.loadSegments(segmentUrls);
-
-        videoRef.current.currentTime = Math.max(
-            0,
-            videoRef.current.currentTime - 1
-        );
+        engine.loadSegments(segmentUrls, videoRef.current.currentTime);
     };
 
     useEffect(() => {
-        if (!src || !videoRef.current) {
-            console.log('No src or video element');
-            return;
-        }
+        if (!src || !videoRef.current) return;
 
         async function getRenditions(src: string, videoEl: HTMLVideoElement) {
-            if (!src || !videoEl) {
-                console.log('No src or video element inside getRenditions');
-                return;
-            }
             const renditions = await fetchManifest(src);
             setRenditions(renditions);
 
-            if (!renditions.length) {
-                console.log('No renditions found');
-                return;
-            }
+            if (!renditions.length) return;
 
             const startingRendition = renditions[0];
-            console.log('Starting rendition:', startingRendition);
-
             const segmentUrls = await fetchPlaylist(startingRendition.url);
-            console.log('segmentUrls:', segmentUrls);
 
-            const mseInstance = new MSEEngine(videoEl);
+            // Calculate the total duration of the video (e.g., from the manifest)
+            const totalDuration = renditions[0].totalDuration; // Assuming the manifest provides this
+            console.log('Total video duration:', totalDuration);
+
+            const mseInstance = new MSEEngine(videoEl, totalDuration);
             setEngine(mseInstance);
-            mseInstance.loadSegments(segmentUrls);
+            mseInstance.loadSegments(
+                segmentUrls,
+                videoRef.current!.currentTime
+            );
         }
 
         getRenditions(src, videoRef.current);
 
         return () => {
-            if (engine) {
-                engine.destroy();
-            }
+            engine?.destroy();
         };
     }, [src]);
 
     useEffect(() => {
-        console.log('useEffect for video element events');
         const videoEl = videoRef.current;
-        if (!videoEl) {
-            console.log('No video element found');
-            return;
-        }
+        if (!videoEl) return;
 
-        const handleError = (e: Event) => {
+        const handleError = () => {
             console.error('Video error:', videoEl.error);
         };
 
         const handleCanPlay = () => {
-            console.log('Video can play');
             videoEl.play().catch((e) => console.error('Play error:', e));
         };
 
