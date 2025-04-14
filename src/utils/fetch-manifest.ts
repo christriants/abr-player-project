@@ -17,17 +17,11 @@ export const fetchManifest = async (url: string): Promise<Renditions[]> => {
             if (bandwidthMatch && resolutionMatch && url) {
                 const absoluteUrl = new URL(relativeUrl, url).href;
 
-                // Fetch the media playlist for this rendition to calculate total duration
-                const totalDuration = await calculateTotalDuration(absoluteUrl);
-                console.log(
-                    `Total duration for ${resolutionMatch[1]}: ${totalDuration}`
-                );
-
                 renditions.push({
                     bandwidth: parseInt(bandwidthMatch[1], 10),
                     resolution: resolutionMatch[1],
                     url: absoluteUrl,
-                    totalDuration,
+                    totalDuration: 0,
                 });
             }
         }

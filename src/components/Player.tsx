@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { MSEEngine } from '../playback-engine/MSEEngine';
 import { fetchManifest } from '../utils/fetch-manifest';
-import { fetchPlaylist } from '../utils/fetch-playlist';
+import { fetchPlaylist, fetchPlaylistData } from '../utils/fetch-playlist';
 import { QualitySelector } from './QualitySelector';
 import { Renditions } from '../types/playback';
 
@@ -23,24 +23,32 @@ export const Player = ({ src }: PlayerProps) => {
 
         videoRef.current.currentTime = targetTime;
 
-        const segmentUrls = await fetchPlaylist(url);
+        const playlist = await fetchPlaylist(url);
+        const { segmentUrls } = await fetchPlaylistData(playlist, url);
         engine.loadSegments(segmentUrls, videoRef.current.currentTime);
     };
 
     useEffect(() => {
         if (!src || !videoRef.current) return;
 
-        async function getRenditions(src: string, videoEl: HTMLVideoElement) {
+        async function initializePlayer(
+            src: string,
+            videoEl: HTMLVideoElement
+        ) {
             const renditions = await fetchManifest(src);
             setRenditions(renditions);
 
             if (!renditions.length) return;
 
             const startingRendition = renditions[0];
-            const segmentUrls = await fetchPlaylist(startingRendition.url);
+            const playlist = await fetchPlaylist(startingRendition.url);
+            const { segmentUrls, totalDuration } = await fetchPlaylistData(
+                playlist,
+                startingRendition.url
+            );
 
             // Calculate the total duration of the video (e.g., from the manifest)
-            const totalDuration = renditions[0].totalDuration; // Assuming the manifest provides this
+            // const totalDuration = renditions[0].totalDuration; // Assuming the manifest provides this
             console.log('Total video duration:', totalDuration);
 
             const mseInstance = new MSEEngine(videoEl, totalDuration);
@@ -51,7 +59,7 @@ export const Player = ({ src }: PlayerProps) => {
             );
         }
 
-        getRenditions(src, videoRef.current);
+        initializePlayer(src, videoRef.current);
 
         return () => {
             engine?.destroy();

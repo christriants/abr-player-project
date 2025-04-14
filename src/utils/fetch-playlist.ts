@@ -13,10 +13,33 @@ export const fetchPlaylist = async (url: string): Promise<string[]> => {
     }
 
     const text = await response.text();
-    const lines = text.split('\n').map((line) => line.trim());
+    return text.split('\n').map((line) => line.trim());
+};
 
+export const getRenditionDuration = (playlistContent: string[]): number => {
+    let totalDuration = 0;
+
+    for (const line of playlistContent) {
+        if (line.startsWith('#EXTINF')) {
+            const durationMatch = line.match(/#EXTINF:([\d.]+)/);
+            if (durationMatch) {
+                totalDuration += parseFloat(durationMatch[1]);
+            }
+        }
+    }
+
+    return totalDuration;
+};
+
+export const fetchPlaylistData = async (
+    playlistTextResponse: string[],
+    url: string
+): Promise<{
+    segmentUrls: string[];
+    totalDuration: number;
+}> => {
     const segmentUrls: string[] = [];
-    for (const line of lines) {
+    for (const line of playlistTextResponse) {
         if (line && !line.startsWith('#')) {
             segmentUrls.push(new URL(line, url).href);
         }
@@ -26,5 +49,8 @@ export const fetchPlaylist = async (url: string): Promise<string[]> => {
     playlistCache.set(url, segmentUrls);
     console.log(`Cached playlist for URL: ${url}`);
 
-    return segmentUrls;
+    return {
+        segmentUrls,
+        totalDuration: getRenditionDuration(playlistTextResponse),
+    };
 };
