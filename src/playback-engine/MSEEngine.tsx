@@ -10,6 +10,8 @@ export class MSEEngine {
     private segmentUrls: string[] = [];
     private currentSegmentIndex: number = 0;
     private bufferMonitorInterval: number | null = null;
+    private isFetching: boolean = false;
+    requestedSegments: Set<number> = new Set();
 
     constructor(videoElement: HTMLVideoElement, duration: number) {
         this.video = videoElement;
@@ -76,22 +78,45 @@ export class MSEEngine {
     }
 
     private async fetchAndProcessNextSegment() {
+        if (this.isFetching) return;
+
+        this.isFetching = true;
+
         const batchSize = 3;
+        const startIndex = this.currentSegmentIndex;
         const segmentsToFetch = this.segmentUrls.slice(
-            this.currentSegmentIndex,
-            this.currentSegmentIndex + batchSize
+            startIndex,
+            startIndex + batchSize
         );
 
         if (segmentsToFetch.length === 0) {
             if (this.mediaSource.readyState === 'open') {
                 this.mediaSource.endOfStream();
             }
+            this.isFetching = false;
             return;
         }
 
-        for (const url of segmentsToFetch) {
+        for (let i = 0; i < segmentsToFetch.length; i++) {
+            const index = startIndex + i;
+
+            // Check if any of the indices in the range [index, index + 2] are already requested
+            let isAlreadyRequested = false;
+            for (let offset = 0; offset <= batchSize; offset++) {
+                if (this.requestedSegments.has(index + offset)) {
+                    isAlreadyRequested = true;
+                    break;
+                }
+            }
+
+            if (isAlreadyRequested) {
+                continue;
+            }
+
+            const url = segmentsToFetch[i];
             try {
                 const data = await this.fetchSegment(url);
+                this.requestedSegments.add(index);
                 this.transmuxer.push(data);
                 this.transmuxer.flush();
             } catch (e) {
@@ -99,7 +124,8 @@ export class MSEEngine {
             }
         }
 
-        this.currentSegmentIndex += segmentsToFetch.length;
+        this.currentSegmentIndex += batchSize;
+        this.isFetching = false;
     }
 
     private async fetchSegment(url: string): Promise<Uint8Array> {
@@ -143,13 +169,32 @@ export class MSEEngine {
         const currentTime = this.video.currentTime;
         console.log('Seeking to:', currentTime);
 
-        this.clearBuffer();
+        const isTimeBuffered = this.isTimeInBuffered(currentTime);
 
-        const newSegmentIndex = Math.floor(currentTime / 3);
-        this.currentSegmentIndex = newSegmentIndex;
+        if (!isTimeBuffered) {
+            this.clearBuffer().then(() => {
+                // Optional: also clear requestedSegments on seek, or manage it per segment index
+                this.requestedSegments.clear();
 
-        this.fetchAndProcessNextSegment();
+                const newSegmentIndex = Math.floor(currentTime / 3);
+                this.currentSegmentIndex = newSegmentIndex;
+
+                this.fetchAndProcessNextSegment();
+            });
+        } else {
+            console.log('Seeked to a time already buffered, skipping fetch');
+        }
     };
+
+    private isTimeInBuffered(time: number): boolean {
+        const buffered = this.video.buffered;
+        for (let i = 0; i < buffered.length; i++) {
+            if (time >= buffered.start(i) && time <= buffered.end(i)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     clearBuffer(): Promise<void> {
         return new Promise((resolve) => {

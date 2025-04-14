@@ -20,6 +20,7 @@ export const Player = ({ src }: PlayerProps) => {
         const targetTime = videoRef.current.currentTime;
 
         await engine.clearBuffer();
+        engine.requestedSegments.clear();
 
         videoRef.current.currentTime = targetTime;
 
