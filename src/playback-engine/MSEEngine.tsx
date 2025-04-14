@@ -9,6 +9,7 @@ export class MSEEngine {
     private isAppending: boolean = false;
     private segmentUrls: string[] = [];
     private currentSegmentIndex: number = 0;
+    private bufferMonitorInterval: number | null = null;
 
     constructor(videoElement: HTMLVideoElement, duration: number) {
         this.video = videoElement;
@@ -34,12 +35,12 @@ export class MSEEngine {
 
         this.mediaSource.addEventListener('sourceopen', () => {
             this.initSourceBuffer();
-
             this.mediaSource.duration = duration;
             console.log('MediaSource duration set to:', duration);
+
+            this.startBufferMonitor(); // ✅ Start monitoring when ready
         });
 
-        this.video.addEventListener('timeupdate', this.onTimeUpdate);
         this.video.addEventListener('seeking', this.onSeeking);
     }
 
@@ -138,26 +139,6 @@ export class MSEEngine {
         }
     }
 
-    private onTimeUpdate = () => {
-        const bufferedEnd = this.video.buffered.length
-            ? this.video.buffered.end(this.video.buffered.length - 1)
-            : 0;
-        const timeRemaining = bufferedEnd - this.video.currentTime;
-
-        if (timeRemaining < 5) {
-            this.fetchAndProcessNextSegment();
-        }
-
-        if (this.video.readyState < 3) {
-            const onCanPlay = () => {
-                this.video.play().catch((e) => console.error('Play error:', e));
-                this.video.removeEventListener('canplay', onCanPlay);
-            };
-
-            this.video.addEventListener('canplay', onCanPlay);
-        }
-    };
-
     private onSeeking = () => {
         const currentTime = this.video.currentTime;
         console.log('Seeking to:', currentTime);
@@ -218,16 +199,42 @@ export class MSEEngine {
                     }
                 }
 
-                // Clear the segment queue
                 this.segmentQueue = [];
+                resolve();
             };
 
             tryClear();
         });
     }
 
+    private startBufferMonitor() {
+        if (this.bufferMonitorInterval !== null) return;
+
+        this.bufferMonitorInterval = window.setInterval(() => {
+            const bufferedEnd = this.video.buffered.length
+                ? this.video.buffered.end(this.video.buffered.length - 1)
+                : 0;
+
+            const timeRemaining = bufferedEnd - this.video.currentTime;
+
+            if (timeRemaining < 5 && !this.isAppending) {
+                console.log('Buffer low — fetching more segments...');
+                this.fetchAndProcessNextSegment();
+            }
+        }, 1000);
+    }
+
+    private stopBufferMonitor() {
+        if (this.bufferMonitorInterval !== null) {
+            clearInterval(this.bufferMonitorInterval);
+            this.bufferMonitorInterval = null;
+        }
+    }
+
     destroy() {
-        this.video.removeEventListener('timeupdate', this.onTimeUpdate);
+        this.stopBufferMonitor();
+
+        this.video.removeEventListener('seeking', this.onSeeking);
         if (this.mediaSource.readyState === 'open') {
             this.mediaSource.endOfStream();
         }
