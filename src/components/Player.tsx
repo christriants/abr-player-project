@@ -1,71 +1,88 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { MSEEngine } from '../playback-engine/MSEEngine';
 import { fetchManifest } from '../utils/fetch-manifest';
-import { fetchPlaylist, fetchPlaylistData } from '../utils/fetch-playlist';
+import {
+    clearPlaylistCache,
+    fetchPlaylist,
+    fetchPlaylistData,
+} from '../utils/fetch-playlist';
 import { QualitySelector } from './QualitySelector';
 import { Renditions } from '../types/playback';
+import { ABRManager } from '../types/abr-manager';
+import { FixedAbrManager } from '../abr/FixedAbrManager';
+import { BufferAbrManager } from '../abr/BufferAbrManager';
 
 type PlayerProps = {
     src: string;
+    abrManager?: 'buffer' | 'fixed';
 };
 
-export const Player = ({ src }: PlayerProps) => {
+export const Player = ({ src, abrManager = 'fixed' }: PlayerProps) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [engine, setEngine] = useState<MSEEngine | null>(null);
     const [renditions, setRenditions] = useState<Renditions[]>([]);
+    const [abr, setAbr] = useState<ABRManager | null>(null);
 
-    const handleQualityChange = async (url: string) => {
-        if (!engine || !videoRef.current) return;
-
-        const targetTime = videoRef.current.currentTime;
-
-        await engine.clearBuffer();
-        engine.requestedSegments.clear();
-
-        videoRef.current.currentTime = targetTime;
-
-        const playlist = await fetchPlaylist(url);
-        const { segmentUrls } = await fetchPlaylistData(playlist, url);
-        engine.loadSegments(segmentUrls, videoRef.current.currentTime);
+    const handleQualityChange = async (index: number) => {
+        if (abrManager === 'fixed' && abr instanceof FixedAbrManager) {
+            await abr.updateSelectedIndex(index);
+        }
     };
-
     useEffect(() => {
         if (!src || !videoRef.current) return;
 
-        async function initializePlayer(
-            src: string,
-            videoEl: HTMLVideoElement
-        ) {
+        clearPlaylistCache();
+
+        async function initializePlayer() {
+            const videoEl = videoRef.current!;
             const renditions = await fetchManifest(src);
             setRenditions(renditions);
 
             if (!renditions.length) return;
 
-            const startingRendition = renditions[0];
-            const playlist = await fetchPlaylist(startingRendition.url);
+            const startingIndex = 0;
+
+            const playlist = await fetchPlaylist(renditions[startingIndex].url);
             const { segmentUrls, totalDuration } = await fetchPlaylistData(
                 playlist,
-                startingRendition.url
+                renditions[startingIndex].url
             );
 
-            // Calculate the total duration of the video (e.g., from the manifest)
-            // const totalDuration = renditions[0].totalDuration; // Assuming the manifest provides this
-            console.log('Total video duration:', totalDuration);
+            if (abr) {
+                console.log('[Player] Destroying previous ABR manager');
+                abr.destroy();
+            }
+
+            if (engine) {
+                console.log('[Player] Resetting MSEEngine');
+                engine.reset();
+            }
 
             const mseInstance = new MSEEngine(videoEl, totalDuration);
             setEngine(mseInstance);
-            mseInstance.loadSegments(
-                segmentUrls,
-                videoRef.current!.currentTime
-            );
+            mseInstance.loadSegments(segmentUrls, 0);
+
+            let managerInstance: ABRManager;
+            if (abrManager === 'buffer') {
+                console.log('[Player] Initializing BufferAbrManager');
+                managerInstance = new BufferAbrManager();
+            } else {
+                console.log('[Player] Initializing FixedAbrManager');
+                managerInstance = new FixedAbrManager(startingIndex);
+            }
+
+            managerInstance.initialize(videoEl, renditions, mseInstance);
+            setAbr(managerInstance);
         }
 
-        initializePlayer(src, videoRef.current);
+        initializePlayer();
 
         return () => {
+            console.log('[Player] Cleaning up Player');
+            abr?.destroy();
             engine?.destroy();
         };
-    }, [src]);
+    }, [src, abrManager]);
 
     useEffect(() => {
         const videoEl = videoRef.current;
@@ -91,10 +108,12 @@ export const Player = ({ src }: PlayerProps) => {
     return (
         <>
             <video ref={videoRef} width="640" height="360" controls></video>
-            <QualitySelector
-                renditions={renditions}
-                onSelect={handleQualityChange}
-            />
+            {abrManager === 'fixed' && (
+                <QualitySelector
+                    renditions={renditions}
+                    onSelect={handleQualityChange}
+                />
+            )}
         </>
     );
 };

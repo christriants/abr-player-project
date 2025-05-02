@@ -6,14 +6,21 @@ export const fetchPlaylist = async (url: string): Promise<string[]> => {
         return playlistCache.get(url)!;
     }
 
-    // Fetch the playlist if not cached
     const response = await fetch(url);
     if (!response.ok) {
         throw new Error(`Failed to fetch playlist: ${url}`);
     }
 
     const text = await response.text();
-    return text.split('\n').map((line) => line.trim());
+    const playlist = text.split('\n').map((line) => line.trim());
+    playlistCache.set(url, playlist);
+    console.log(`Cached playlist for URL: ${url}`);
+    return playlist;
+};
+
+export const clearPlaylistCache = () => {
+    console.log('[fetchPlaylist] Clearing playlist cache');
+    playlistCache.clear();
 };
 
 export const getRenditionDuration = (playlistContent: string[]): number => {

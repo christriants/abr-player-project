@@ -6,6 +6,7 @@ export const App = () => {
     const [manifestUrl, setManifestUrl] = useState(
         'http://localhost:5173/hls/master.m3u8'
     );
+    const [abrManager, setAbrManager] = useState<'buffer' | 'fixed'>('buffer');
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const target = e.target as HTMLInputElement;
@@ -16,7 +17,7 @@ export const App = () => {
         <>
             <div>
                 <h1>Video Player</h1>
-                <Player src={manifestUrl} />
+                <Player src={manifestUrl} abrManager={abrManager} />
             </div>
             <input
                 type="text"
@@ -24,6 +25,18 @@ export const App = () => {
                 value={manifestUrl}
                 onChange={handleInputChange}
             />
+            <div>
+                <label>ABR Mode:</label>
+                <select
+                    value={abrManager}
+                    onChange={(e) =>
+                        setAbrManager(e.currentTarget.value as any)
+                    }
+                >
+                    <option value="fixed">Fixed</option>
+                    <option value="buffer">Buffer</option>
+                </select>
+            </div>
         </>
     );
 };
