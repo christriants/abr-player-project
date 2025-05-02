@@ -51,20 +51,16 @@ export const Player = ({ src, abrManager = 'fixed' }: PlayerProps) => {
             );
 
             const codecs = selectedRendition.codecs;
-            console.log('[Player] Codecs:', codecs);
 
             if (abr) {
-                console.log('[Player] Destroying previous ABR manager');
                 abr.destroy();
             }
 
             let mseInstance;
             if (engine) {
-                console.log('[Player] Resetting MSEEngine');
                 await engine.reset(codecs);
                 mseInstance = engine;
             } else {
-                console.log('[Player] Initializing new MSEEngine');
                 mseInstance = new MSEEngine(videoEl, totalDuration, codecs);
                 setEngine(mseInstance);
                 await mseInstance.loadSegments(segmentUrls, 0);
@@ -72,10 +68,8 @@ export const Player = ({ src, abrManager = 'fixed' }: PlayerProps) => {
 
             let managerInstance: ABRManager;
             if (abrManager === 'buffer') {
-                console.log('[Player] Initializing BufferAbrManager');
                 managerInstance = new BufferAbrManager();
             } else {
-                console.log('[Player] Initializing FixedAbrManager');
                 managerInstance = new FixedAbrManager(startingIndex);
             }
 
@@ -86,7 +80,6 @@ export const Player = ({ src, abrManager = 'fixed' }: PlayerProps) => {
         initializePlayer();
 
         return () => {
-            console.log('[Player] Cleaning up Player');
             abr?.destroy();
             engine?.destroy();
         };

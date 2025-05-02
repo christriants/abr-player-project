@@ -3,10 +3,7 @@ import { useState } from 'preact/hooks';
 import { ChangeEvent } from 'preact/compat';
 
 export const App = () => {
-    const [manifestUrl, setManifestUrl] = useState(
-        'http://localhost:5173/hls/master.m3u8'
-        // https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8
-    );
+    const [manifestUrl, setManifestUrl] = useState('');
     const [abrManager, setAbrManager] = useState<'buffer' | 'fixed'>('buffer');
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {

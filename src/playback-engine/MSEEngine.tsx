@@ -49,16 +49,13 @@ export class MSEEngine {
 
     private setup(codecs: string[]) {
         this.mediaSource.addEventListener('sourceopen', () => {
-            console.log('[MSEEngine] MediaSource opened');
+            console.log('MediaSource opened');
 
             this.initSourceBuffer(codecs);
 
             if (this.duration) {
                 this.mediaSource.duration = this.duration;
-                console.log(
-                    '[MSEEngine] MediaSource duration set to:',
-                    this.duration
-                );
+                console.log('MediaSource duration set to:', this.duration);
             }
 
             this.startBufferMonitor();
@@ -67,7 +64,7 @@ export class MSEEngine {
     }
 
     reset(codecs: string[]): void {
-        console.log('[MSEEngine] Resetting engine state');
+        console.log('Resetting engine state');
 
         this.stopBufferMonitor();
 
@@ -75,7 +72,7 @@ export class MSEEngine {
             try {
                 this.mediaSource.removeSourceBuffer(this.sourceBuffer);
             } catch (e) {
-                console.warn('[MSEEngine] Failed to remove SourceBuffer:', e);
+                console.warn('Failed to remove SourceBuffer:', e);
             }
         }
 
@@ -83,10 +80,7 @@ export class MSEEngine {
             try {
                 this.mediaSource.endOfStream();
             } catch (e) {
-                console.warn(
-                    '[MSEEngine] Failed to end MediaSource stream:',
-                    e
-                );
+                console.warn('Failed to end MediaSource stream:', e);
             }
         }
 
@@ -134,7 +128,7 @@ export class MSEEngine {
     clearBuffer(): Promise<void> {
         return new Promise((resolve) => {
             if (!this.sourceBuffer) {
-                console.warn('[MSEEngine] No SourceBuffer to clear');
+                console.warn('No SourceBuffer to clear');
                 resolve();
                 return;
             }
@@ -144,7 +138,7 @@ export class MSEEngine {
             ).some((buffer) => buffer === this.sourceBuffer);
 
             if (!isSourceBufferValid) {
-                console.error('[MSEEngine] SourceBuffer is no longer valid');
+                console.error('SourceBuffer is no longer valid');
                 resolve();
                 return;
             }
@@ -187,7 +181,7 @@ export class MSEEngine {
                         }
                     }
                 } catch (e) {
-                    console.warn('[MSEEngine] Failed to clear buffer:', e);
+                    console.warn('Failed to clear buffer:', e);
                     resolve();
                 }
             };
@@ -200,7 +194,7 @@ export class MSEEngine {
         let supportedCodec: string | null = null;
 
         for (const codec of codecs) {
-            console.log('[MSEEngine] Checking codec support for:', codec);
+            console.log('Checking codec support for:', codec);
             const mimeCodec = `video/mp4; codecs="${codec}"`;
             if (MediaSource.isTypeSupported(mimeCodec)) {
                 supportedCodec = mimeCodec;
@@ -209,7 +203,7 @@ export class MSEEngine {
         }
 
         if (!supportedCodec) {
-            console.error('[MSEEngine] No supported codecs found:', codecs);
+            console.error('No supported codecs found:', codecs);
             return;
         }
 
@@ -310,7 +304,7 @@ export class MSEEngine {
         ).some((buffer) => buffer === this.sourceBuffer);
 
         if (!isSourceBufferValid) {
-            console.error('[MSEEngine] SourceBuffer is no longer valid');
+            console.error('SourceBuffer is no longer valid');
             return;
         }
 

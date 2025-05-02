@@ -21,7 +21,7 @@ export const fetchPlaylist = async (url: string): Promise<string[]> => {
 };
 
 export const clearPlaylistCache = () => {
-    console.log('[fetchPlaylist] Clearing playlist cache');
+    console.log('Clearing playlist cache');
     playlistCache.clear();
 };
 

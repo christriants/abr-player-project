@@ -20,10 +20,7 @@ export class BufferAbrManager implements ABRManager {
         this.engine = engine;
         this.currentIndex = 0;
 
-        console.log(
-            '[BufferAbrManager] Initialized with renditions:',
-            renditions
-        );
+        console.log('BufferAbrManager initialized');
 
         this.interval = window.setInterval(
             () => this.checkBufferAndSwitch(),
@@ -37,7 +34,7 @@ export class BufferAbrManager implements ABRManager {
             this.interval = undefined;
         }
 
-        console.log('[BufferAbrManager] Destroyed');
+        console.log('BufferAbrManager destroyed');
     }
 
     private async checkBufferAndSwitch() {
@@ -46,13 +43,17 @@ export class BufferAbrManager implements ABRManager {
         );
 
         console.log(
-            `[BufferAbrManager] Buffer length: ${bufferLength}, Current index: ${this.currentIndex}`
+            `Buffer length: ${bufferLength}, Current resolution: ${
+                this.renditions[this.currentIndex].resolution
+            }`
         );
 
         if (bufferLength < 3 && this.currentIndex > 0) {
             this.currentIndex--;
             console.log(
-                `[BufferAbrManager] Switching to lower quality: Index ${this.currentIndex}`
+                `Switching to lower quality: ${
+                    this.renditions[this.currentIndex].resolution
+                }`
             );
             await this.loadCurrentRendition();
         } else if (
@@ -61,7 +62,9 @@ export class BufferAbrManager implements ABRManager {
         ) {
             this.currentIndex++;
             console.log(
-                `[BufferAbrManager] Switching to higher quality: Index ${this.currentIndex}`
+                `Switching to higher quality: ${
+                    this.renditions[this.currentIndex].resolution
+                }`
             );
             await this.loadCurrentRendition();
         }
@@ -69,7 +72,7 @@ export class BufferAbrManager implements ABRManager {
 
     private async loadCurrentRendition() {
         const rendition = this.renditions[this.currentIndex];
-        console.log('[BufferAbrManager] Loading rendition:', rendition);
+        console.log('Loading rendition:', rendition);
 
         const playlist = await fetchPlaylist(rendition.url);
         const { segmentUrls } = await fetchPlaylistData(

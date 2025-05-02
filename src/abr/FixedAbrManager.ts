@@ -23,14 +23,11 @@ export class FixedAbrManager implements ABRManager {
         this.renditions = renditions;
         this.engine = engine;
 
-        console.log(
-            '[FixedAbrManager] Initialized with renditions:',
-            renditions
-        );
+        console.log('FixedAbrManager initialized:', renditions);
     }
 
     destroy() {
-        console.log('[FixedAbrManager] Destroyed');
+        console.log('FixedAbrManager destroyed');
     }
 
     getInitialRenditionIndex(): number {
@@ -39,13 +36,14 @@ export class FixedAbrManager implements ABRManager {
 
     async updateSelectedIndex(index: number) {
         if (this.currentIndex === index) {
-            console.log('[FixedAbrManager] Quality already selected:', index);
             return;
         }
 
         this.currentIndex = index;
         const rendition = this.renditions[this.currentIndex];
-        console.log('[FixedAbrManager] Switching to rendition:', rendition);
+        console.log(
+            `Switching to ${this.renditions[this.currentIndex].resolution}`
+        );
 
         let segmentUrls = this.playlistCache.get(rendition.url);
         if (!segmentUrls) {
