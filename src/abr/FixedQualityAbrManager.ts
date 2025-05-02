@@ -3,7 +3,7 @@ import { ABRManager } from '../types/abr-manager';
 import { Renditions } from '../types/playback';
 import { fetchPlaylist, fetchPlaylistData } from '../utils/fetch-playlist';
 
-export class FixedAbrManager implements ABRManager {
+export class FixedQualityAbrManager implements ABRManager {
     private currentIndex = 0;
     private videoEl!: HTMLVideoElement;
     private renditions!: Renditions[];
@@ -23,11 +23,11 @@ export class FixedAbrManager implements ABRManager {
         this.renditions = renditions;
         this.engine = engine;
 
-        console.log('FixedAbrManager initialized:', renditions);
+        console.log('FixedQualityAbrManager initialized:', renditions);
     }
 
     destroy() {
-        console.log('FixedAbrManager destroyed');
+        console.log('FixedQualityAbrManager destroyed');
     }
 
     getInitialRenditionIndex(): number {

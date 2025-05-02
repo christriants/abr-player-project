@@ -9,3 +9,5 @@ export interface ABRManager {
     ): void;
     destroy(): void;
 }
+
+export type ABRManagerType = 'buffer-based' | 'fixed';

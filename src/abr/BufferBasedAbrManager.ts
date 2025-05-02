@@ -3,7 +3,7 @@ import { ABRManager } from '../types/abr-manager';
 import { Renditions } from '../types/playback';
 import { fetchPlaylist, fetchPlaylistData } from '../utils/fetch-playlist';
 
-export class BufferAbrManager implements ABRManager {
+export class BufferBasedAbrManager implements ABRManager {
     private videoEl!: HTMLVideoElement;
     private renditions!: Renditions[];
     private engine!: MSEEngine;
@@ -20,7 +20,7 @@ export class BufferAbrManager implements ABRManager {
         this.engine = engine;
         this.currentIndex = 0;
 
-        console.log('BufferAbrManager initialized');
+        console.log('BufferBasedAbrManager initialized');
 
         this.interval = window.setInterval(
             () => this.checkBufferAndSwitch(),
@@ -34,7 +34,7 @@ export class BufferAbrManager implements ABRManager {
             this.interval = undefined;
         }
 
-        console.log('BufferAbrManager destroyed');
+        console.log('BufferBasedAbrManager destroyed');
     }
 
     private async checkBufferAndSwitch() {

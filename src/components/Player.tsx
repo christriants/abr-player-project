@@ -7,25 +7,25 @@ import {
     fetchPlaylistData,
 } from '../utils/fetch-playlist';
 import { QualitySelector } from './QualitySelector';
-import { Renditions } from '../types/playback';
-import { ABRManager } from '../types/abr-manager';
-import { FixedAbrManager } from '../abr/FixedAbrManager';
-import { BufferAbrManager } from '../abr/BufferAbrManager';
+import type { Renditions } from '../types/playback';
+import type { ABRManager, ABRManagerType } from '../types/abr-manager';
+import { FixedQualityAbrManager } from '../abr/FixedQualityAbrManager';
+import { BufferBasedAbrManager } from '../abr/BufferBasedAbrManager';
 
 type PlayerProps = {
     src: string;
-    abrManager?: 'buffer' | 'fixed';
+    abr?: ABRManagerType;
 };
 
-export const Player = ({ src, abrManager = 'fixed' }: PlayerProps) => {
+export const Player = ({ src, abr = 'fixed' }: PlayerProps) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [engine, setEngine] = useState<MSEEngine | null>(null);
     const [renditions, setRenditions] = useState<Renditions[]>([]);
-    const [abr, setAbr] = useState<ABRManager | null>(null);
+    const [abrManager, setAbrManager] = useState<ABRManager | null>(null);
 
     const handleQualityChange = async (index: number) => {
-        if (abrManager === 'fixed' && abr instanceof FixedAbrManager) {
-            await abr.updateSelectedIndex(index);
+        if (abr === 'fixed' && abrManager instanceof FixedQualityAbrManager) {
+            await abrManager.updateSelectedIndex(index);
         }
     };
 
@@ -52,8 +52,8 @@ export const Player = ({ src, abrManager = 'fixed' }: PlayerProps) => {
 
             const codecs = selectedRendition.codecs;
 
-            if (abr) {
-                abr.destroy();
+            if (abrManager) {
+                abrManager.destroy();
             }
 
             let mseInstance;
@@ -66,24 +66,24 @@ export const Player = ({ src, abrManager = 'fixed' }: PlayerProps) => {
                 await mseInstance.loadSegments(segmentUrls, 0);
             }
 
-            let managerInstance: ABRManager;
-            if (abrManager === 'buffer') {
-                managerInstance = new BufferAbrManager();
+            let abrManagerInstance: ABRManager;
+            if (abr === 'buffer-based') {
+                abrManagerInstance = new BufferBasedAbrManager();
             } else {
-                managerInstance = new FixedAbrManager(startingIndex);
+                abrManagerInstance = new FixedQualityAbrManager(startingIndex);
             }
 
-            managerInstance.initialize(videoEl, renditions, mseInstance);
-            setAbr(managerInstance);
+            abrManagerInstance.initialize(videoEl, renditions, mseInstance);
+            setAbrManager(abrManagerInstance);
         }
 
         initializePlayer();
 
         return () => {
-            abr?.destroy();
+            abrManager?.destroy();
             engine?.destroy();
         };
-    }, [src, abrManager]);
+    }, [src, abr]);
 
     useEffect(() => {
         const videoEl = videoRef.current;
@@ -109,7 +109,7 @@ export const Player = ({ src, abrManager = 'fixed' }: PlayerProps) => {
     return (
         <>
             <video ref={videoRef} width="640" height="360" controls></video>
-            {abrManager === 'fixed' && (
+            {abr === 'fixed' && (
                 <QualitySelector
                     renditions={renditions}
                     onSelect={handleQualityChange}

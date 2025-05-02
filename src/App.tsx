@@ -1,10 +1,11 @@
 import { Player } from './components';
 import { useState } from 'preact/hooks';
 import { ChangeEvent } from 'preact/compat';
+import type { ABRManagerType } from './types/abr-manager';
 
 export const App = () => {
     const [manifestUrl, setManifestUrl] = useState('');
-    const [abrManager, setAbrManager] = useState<'buffer' | 'fixed'>('buffer');
+    const [abrType, setAbrType] = useState<ABRManagerType>('buffer-based');
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const target = e.target as HTMLInputElement;
@@ -15,7 +16,7 @@ export const App = () => {
         <>
             <div>
                 <h1>Video Player</h1>
-                <Player src={manifestUrl} abrManager={abrManager} />
+                <Player src={manifestUrl} abr={abrType} />
             </div>
             <input
                 type="text"
@@ -26,13 +27,11 @@ export const App = () => {
             <div>
                 <label>ABR Mode:</label>
                 <select
-                    value={abrManager}
-                    onChange={(e) =>
-                        setAbrManager(e.currentTarget.value as any)
-                    }
+                    value={abrType}
+                    onChange={(e) => setAbrType(e.currentTarget.value as any)}
                 >
                     <option value="fixed">Fixed</option>
-                    <option value="buffer">Buffer</option>
+                    <option value="buffer-based">Buffer-based</option>
                 </select>
             </div>
         </>
