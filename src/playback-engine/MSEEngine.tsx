@@ -3,6 +3,7 @@ import muxjs from 'mux.js';
 export class MSEEngine {
     private transmuxer: muxjs.mp4.Transmuxer;
     private video: HTMLVideoElement;
+    private duration: number;
     private mediaSource: MediaSource;
     private sourceBuffer!: SourceBuffer;
     private segmentQueue: Uint8Array[] = [];
@@ -17,6 +18,7 @@ export class MSEEngine {
         this.video = videoElement;
         this.mediaSource = new MediaSource();
         this.video.src = URL.createObjectURL(this.mediaSource);
+        this.duration = duration;
 
         this.transmuxer = new muxjs.mp4.Transmuxer();
         this.transmuxer.on('data', (segmentData: any) => {
@@ -29,7 +31,7 @@ export class MSEEngine {
                 segmentData.initSegment.byteLength
             );
 
-            const segmentStartTime = this.currentSegmentIndex * 3; // Assuming 3s segments
+            const segmentStartTime = this.currentSegmentIndex * 3; // 3s segments
             segmentData.timestampOffset = segmentStartTime;
 
             this.queueSegment(mp4Segment);
@@ -40,7 +42,7 @@ export class MSEEngine {
             this.mediaSource.duration = duration;
             console.log('MediaSource duration set to:', duration);
 
-            this.startBufferMonitor(); // ✅ Start monitoring when ready
+            this.startBufferMonitor();
         });
 
         this.video.addEventListener('seeking', this.onSeeking);
@@ -69,6 +71,53 @@ export class MSEEngine {
         } catch (e) {
             console.error('Error creating SourceBuffer:', e);
         }
+    }
+
+    reset(): void {
+        console.log('[MSEEngine] Resetting engine state');
+
+        this.stopBufferMonitor();
+
+        if (this.sourceBuffer) {
+            try {
+                this.mediaSource.removeSourceBuffer(this.sourceBuffer);
+            } catch (e) {
+                console.warn('[MSEEngine] Failed to remove SourceBuffer:', e);
+            }
+        }
+
+        if (this.mediaSource.readyState === 'open') {
+            try {
+                this.mediaSource.endOfStream();
+            } catch (e) {
+                console.warn(
+                    '[MSEEngine] Failed to end MediaSource stream:',
+                    e
+                );
+            }
+        }
+
+        this.mediaSource = new MediaSource();
+        this.video.src = URL.createObjectURL(this.mediaSource);
+
+        this.mediaSource.addEventListener('sourceopen', () => {
+            console.log('[MSEEngine] MediaSource opened');
+            this.initSourceBuffer();
+
+            if (this.duration) {
+                this.mediaSource.duration = this.duration;
+                console.log(
+                    '[MSEEngine] MediaSource duration set to:',
+                    this.duration
+                );
+            }
+        });
+
+        this.clearBuffer();
+        this.requestedSegments.clear();
+        this.currentSegmentIndex = 0;
+        this.segmentQueue = [];
+        this.isAppending = false;
     }
 
     loadSegments(segmentUrls: string[], startTime: number) {
@@ -153,6 +202,15 @@ export class MSEEngine {
             return;
         }
 
+        const isSourceBufferValid = Array.from(
+            this.mediaSource.sourceBuffers
+        ).some((buffer) => buffer === this.sourceBuffer);
+
+        if (!isSourceBufferValid) {
+            console.error('[MSEEngine] SourceBuffer is no longer valid');
+            return;
+        }
+
         const segment = this.segmentQueue.shift();
         if (!segment) return;
 
@@ -198,7 +256,21 @@ export class MSEEngine {
 
     clearBuffer(): Promise<void> {
         return new Promise((resolve) => {
-            if (!this.sourceBuffer) return resolve();
+            if (!this.sourceBuffer) {
+                console.warn('[MSEEngine] No SourceBuffer to clear');
+                resolve();
+                return;
+            }
+
+            const isSourceBufferValid = Array.from(
+                this.mediaSource.sourceBuffers
+            ).some((buffer) => buffer === this.sourceBuffer);
+
+            if (!isSourceBufferValid) {
+                console.error('[MSEEngine] SourceBuffer is no longer valid');
+                resolve();
+                return;
+            }
 
             const tryClear = () => {
                 if (!this.sourceBuffer || this.sourceBuffer.updating) {
@@ -206,46 +278,41 @@ export class MSEEngine {
                     return;
                 }
 
-                const buffered = this.sourceBuffer.buffered;
-                const currentTime = this.video.currentTime;
+                try {
+                    const buffered = this.sourceBuffer.buffered;
+                    const currentTime = this.video.currentTime;
 
-                if (buffered.length === 0) {
-                    resolve();
-                    return;
-                }
+                    if (buffered.length === 0) {
+                        this.requestedSegments.clear();
+                        resolve();
+                        return;
+                    }
 
-                const handleUpdateEnd = () => {
-                    this.sourceBuffer.removeEventListener(
+                    const handleUpdateEnd = () => {
+                        this.sourceBuffer.removeEventListener(
+                            'updateend',
+                            handleUpdateEnd
+                        );
+                        this.requestedSegments.clear();
+                        resolve();
+                    };
+
+                    this.sourceBuffer.addEventListener(
                         'updateend',
                         handleUpdateEnd
                     );
-                    resolve();
-                };
 
-                this.sourceBuffer.addEventListener(
-                    'updateend',
-                    handleUpdateEnd
-                );
-
-                for (let i = 0; i < buffered.length; i++) {
-                    const start = buffered.start(i);
-                    const end = buffered.end(i);
-
-                    // Only clear ranges outside the current playback position
-                    if (end < currentTime || start > currentTime + 5) {
-                        try {
-                            console.log(
-                                `Removing buffer range: ${start} - ${end}`
-                            );
+                    for (let i = 0; i < buffered.length; i++) {
+                        const start = buffered.start(i);
+                        const end = buffered.end(i);
+                        if (end < currentTime || start > currentTime + 5) {
                             this.sourceBuffer.remove(start, end);
-                        } catch (e) {
-                            console.warn('Failed to remove buffer range:', e);
                         }
                     }
+                } catch (e) {
+                    console.warn('[MSEEngine] Failed to clear buffer:', e);
+                    resolve();
                 }
-
-                this.segmentQueue = [];
-                resolve();
             };
 
             tryClear();
