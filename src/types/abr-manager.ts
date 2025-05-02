@@ -8,7 +8,4 @@ export interface ABRManager {
         engine: MSEEngine
     ): void;
     destroy(): void;
-    onPlaybackTick?(currentTime: number): void;
-    handleBufferUpdate?(): void;
-    selectRendition?(url: string): void;
 }

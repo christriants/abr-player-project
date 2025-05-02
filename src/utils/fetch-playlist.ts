@@ -54,7 +54,6 @@ export const fetchPlaylistData = async (
         }
     }
 
-    // Cache the fetched playlist
     playlistCache.set(url, segmentUrls);
     console.log(`Cached playlist for URL: ${url}`);
 

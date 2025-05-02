@@ -8,7 +8,7 @@ export class FixedAbrManager implements ABRManager {
     private videoEl!: HTMLVideoElement;
     private renditions!: Renditions[];
     private engine!: MSEEngine;
-    private playlistCache = new Map<string, string[]>(); // Cache for playlists
+    private playlistCache = new Map<string, string[]>();
 
     constructor(initialIndex = 0) {
         this.currentIndex = initialIndex;

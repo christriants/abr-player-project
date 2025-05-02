@@ -16,7 +16,7 @@ export class BufferAbrManager implements ABRManager {
         engine: MSEEngine
     ) {
         this.videoEl = videoEl;
-        this.renditions = renditions.sort((a, b) => a.bandwidth - b.bandwidth); // ✅ Sort
+        this.renditions = renditions.sort((a, b) => a.bandwidth - b.bandwidth);
         this.engine = engine;
         this.currentIndex = 0;
 
