@@ -5,6 +5,7 @@ import { ChangeEvent } from 'preact/compat';
 export const App = () => {
     const [manifestUrl, setManifestUrl] = useState(
         'http://localhost:5173/hls/master.m3u8'
+        // https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8
     );
     const [abrManager, setAbrManager] = useState<'buffer' | 'fixed'>('buffer');
 

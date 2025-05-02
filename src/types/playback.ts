@@ -3,4 +3,5 @@ export type Renditions = {
     bandwidth: number;
     url: string;
     totalDuration: number;
+    codecs: string[];
 };

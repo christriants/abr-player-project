@@ -28,6 +28,7 @@ export const Player = ({ src, abrManager = 'fixed' }: PlayerProps) => {
             await abr.updateSelectedIndex(index);
         }
     };
+
     useEffect(() => {
         if (!src || !videoRef.current) return;
 
@@ -41,26 +42,33 @@ export const Player = ({ src, abrManager = 'fixed' }: PlayerProps) => {
             if (!renditions.length) return;
 
             const startingIndex = 0;
+            const selectedRendition = renditions[startingIndex];
 
-            const playlist = await fetchPlaylist(renditions[startingIndex].url);
+            const playlist = await fetchPlaylist(selectedRendition.url);
             const { segmentUrls, totalDuration } = await fetchPlaylistData(
                 playlist,
-                renditions[startingIndex].url
+                selectedRendition.url
             );
+
+            const codecs = selectedRendition.codecs;
+            console.log('[Player] Codecs:', codecs);
 
             if (abr) {
                 console.log('[Player] Destroying previous ABR manager');
                 abr.destroy();
             }
 
+            let mseInstance;
             if (engine) {
                 console.log('[Player] Resetting MSEEngine');
-                engine.reset();
+                await engine.reset(codecs);
+                mseInstance = engine;
+            } else {
+                console.log('[Player] Initializing new MSEEngine');
+                mseInstance = new MSEEngine(videoEl, totalDuration, codecs);
+                setEngine(mseInstance);
+                await mseInstance.loadSegments(segmentUrls, 0);
             }
-
-            const mseInstance = new MSEEngine(videoEl, totalDuration);
-            setEngine(mseInstance);
-            mseInstance.loadSegments(segmentUrls, 0);
 
             let managerInstance: ABRManager;
             if (abrManager === 'buffer') {

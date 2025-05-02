@@ -12,6 +12,7 @@ export const fetchManifest = async (url: string): Promise<Renditions[]> => {
             console.log('Found rendition:', lines[i]);
             const bandwidthMatch = lines[i].match(/BANDWIDTH=(\d+)/);
             const resolutionMatch = lines[i].match(/RESOLUTION=(\d+x\d+)/);
+            const codecsMatch = lines[i].match(/CODECS="([^"]+)"/);
             const relativeUrl = lines[i + 1];
 
             if (bandwidthMatch && resolutionMatch && url) {
@@ -22,6 +23,7 @@ export const fetchManifest = async (url: string): Promise<Renditions[]> => {
                     resolution: resolutionMatch[1],
                     url: absoluteUrl,
                     totalDuration: 0,
+                    codecs: codecsMatch ? codecsMatch[1].split(',') : [],
                 });
             }
         }

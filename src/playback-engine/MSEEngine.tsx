@@ -6,19 +6,26 @@ export class MSEEngine {
     private duration: number;
     private mediaSource: MediaSource;
     private sourceBuffer!: SourceBuffer;
+    private codecs: string[];
     private segmentQueue: Uint8Array[] = [];
     private isAppending: boolean = false;
     private segmentUrls: string[] = [];
     private currentSegmentIndex: number = 0;
     private bufferMonitorInterval: number | null = null;
     private isFetching: boolean = false;
+
     requestedSegments: Set<number> = new Set();
 
-    constructor(videoElement: HTMLVideoElement, duration: number) {
+    constructor(
+        videoElement: HTMLVideoElement,
+        duration: number,
+        codecs: string[]
+    ) {
         this.video = videoElement;
         this.mediaSource = new MediaSource();
         this.video.src = URL.createObjectURL(this.mediaSource);
         this.duration = duration;
+        this.codecs = codecs;
 
         this.transmuxer = new muxjs.mp4.Transmuxer();
         this.transmuxer.on('data', (segmentData: any) => {
@@ -37,14 +44,14 @@ export class MSEEngine {
             this.queueSegment(mp4Segment);
         });
 
-        this.setup();
+        this.setup(this.codecs);
     }
 
-    private setup() {
+    private setup(codecs: string[]) {
         this.mediaSource.addEventListener('sourceopen', () => {
             console.log('[MSEEngine] MediaSource opened');
 
-            this.initSourceBuffer();
+            this.initSourceBuffer(codecs);
 
             if (this.duration) {
                 this.mediaSource.duration = this.duration;
@@ -59,7 +66,7 @@ export class MSEEngine {
         this.video.addEventListener('seeking', this.onSeeking);
     }
 
-    reset(): void {
+    reset(codecs: string[]): void {
         console.log('[MSEEngine] Resetting engine state');
 
         this.stopBufferMonitor();
@@ -86,7 +93,7 @@ export class MSEEngine {
         this.mediaSource = new MediaSource();
         this.video.src = URL.createObjectURL(this.mediaSource);
 
-        this.setup();
+        this.setup(codecs);
 
         this.clearBuffer().then(() => {
             this.requestedSegments.clear();
@@ -189,16 +196,26 @@ export class MSEEngine {
         });
     }
 
-    private initSourceBuffer() {
-        const mimeCodec = 'video/mp4; codecs="avc1.42E01E"';
+    private initSourceBuffer(codecs: string[]) {
+        let supportedCodec: string | null = null;
 
-        if (!MediaSource.isTypeSupported(mimeCodec)) {
-            console.error('Unsupported MIME type:', mimeCodec);
+        for (const codec of codecs) {
+            console.log('[MSEEngine] Checking codec support for:', codec);
+            const mimeCodec = `video/mp4; codecs="${codec}"`;
+            if (MediaSource.isTypeSupported(mimeCodec)) {
+                supportedCodec = mimeCodec;
+                break;
+            }
+        }
+
+        if (!supportedCodec) {
+            console.error('[MSEEngine] No supported codecs found:', codecs);
             return;
         }
 
         try {
-            this.sourceBuffer = this.mediaSource.addSourceBuffer(mimeCodec);
+            this.sourceBuffer =
+                this.mediaSource.addSourceBuffer(supportedCodec);
             this.sourceBuffer.mode = 'segments';
 
             this.sourceBuffer.addEventListener('updateend', () => {

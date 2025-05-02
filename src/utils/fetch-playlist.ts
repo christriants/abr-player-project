@@ -1,3 +1,5 @@
+import { parseCodecsFromPlaylist } from './parse-codecs-from-playlist';
+
 const playlistCache = new Map<string, string[]>();
 
 export const fetchPlaylist = async (url: string): Promise<string[]> => {
