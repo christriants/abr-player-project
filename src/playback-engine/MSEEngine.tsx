@@ -38,20 +38,17 @@ export class MSEEngine {
                 segmentData.initSegment.byteLength
             );
 
-            const segmentStartTime = this.currentSegmentIndex * 3; // 3s segments
-            segmentData.timestampOffset = segmentStartTime;
-
             this.queueSegment(mp4Segment);
         });
 
-        this.setup(this.codecs);
+        this.setup();
     }
 
-    private setup(codecs: string[]) {
+    private setup() {
         this.mediaSource.addEventListener('sourceopen', () => {
             console.log('MediaSource opened');
 
-            this.initSourceBuffer(codecs);
+            this.initSourceBuffer();
 
             if (this.duration) {
                 this.mediaSource.duration = this.duration;
@@ -63,7 +60,7 @@ export class MSEEngine {
         this.video.addEventListener('seeking', this.onSeeking);
     }
 
-    reset(codecs: string[]): void {
+    reset(): void {
         console.log('Resetting engine state');
 
         this.stopBufferMonitor();
@@ -87,7 +84,7 @@ export class MSEEngine {
         this.mediaSource = new MediaSource();
         this.video.src = URL.createObjectURL(this.mediaSource);
 
-        this.setup(codecs);
+        this.setup();
 
         this.clearBuffer().then(() => {
             this.requestedSegments.clear();
@@ -190,10 +187,10 @@ export class MSEEngine {
         });
     }
 
-    private initSourceBuffer(codecs: string[]) {
+    private initSourceBuffer() {
         let supportedCodec: string | null = null;
 
-        for (const codec of codecs) {
+        for (const codec of this.codecs) {
             console.log('Checking codec support for:', codec);
             const mimeCodec = `video/mp4; codecs="${codec}"`;
             if (MediaSource.isTypeSupported(mimeCodec)) {
@@ -203,7 +200,7 @@ export class MSEEngine {
         }
 
         if (!supportedCodec) {
-            console.error('No supported codecs found:', codecs);
+            console.error('No supported codecs found:', this.codecs);
             return;
         }
 

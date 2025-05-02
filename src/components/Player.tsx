@@ -58,7 +58,7 @@ export const Player = ({ src, abr = 'fixed' }: PlayerProps) => {
 
             let mseInstance;
             if (engine) {
-                await engine.reset(codecs);
+                await engine.reset();
                 mseInstance = engine;
             } else {
                 mseInstance = new MSEEngine(videoEl, totalDuration, codecs);
