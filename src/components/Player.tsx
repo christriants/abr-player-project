@@ -17,9 +17,18 @@ import { SimpleNetworkManager } from '../network-manager/SimpleNetworkManager';
 type PlayerProps = {
     src: string;
     abr?: ABRManagerType;
+    onDebugInfoUpdate: (info: {
+        currentRendition: Renditions['resolution'];
+        estimatedBandwidth: number;
+        bufferLength: number;
+    }) => void;
 };
 
-export const Player = ({ src, abr = 'fixed' }: PlayerProps) => {
+export const Player = ({
+    src,
+    abr = 'fixed',
+    onDebugInfoUpdate,
+}: PlayerProps) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [engine, setEngine] = useState<MSEEngine | null>(null);
     const [renditions, setRenditions] = useState<Renditions[]>([]);
@@ -166,6 +175,34 @@ export const Player = ({ src, abr = 'fixed' }: PlayerProps) => {
             videoEl.removeEventListener('canplay', handleCanPlay);
         };
     }, []);
+
+    useEffect(() => {
+        const videoEl = videoRef.current;
+        if (!videoEl || !abrManager) return;
+
+        const updateDebugInfo = () => {
+            const currentRendition = abrManager.getRendition();
+            const estimatedBandwidth =
+                networkManagerRef?.current?.getBandwidthEstimate() || 0;
+            const bufferLength = videoEl.buffered.length
+                ? videoEl.buffered.end(0) - videoEl.currentTime
+                : 0;
+
+            onDebugInfoUpdate({
+                currentRendition: currentRendition
+                    ? currentRendition.resolution
+                    : 'Unknown',
+                estimatedBandwidth,
+                bufferLength,
+            });
+        };
+
+        const interval = setInterval(updateDebugInfo, 1000);
+
+        return () => {
+            clearInterval(interval);
+        };
+    }, [abrManager, renditions, onDebugInfoUpdate]);
 
     return (
         <>

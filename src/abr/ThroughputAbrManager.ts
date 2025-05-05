@@ -102,6 +102,10 @@ export class ThroughputAbrManager implements ABRManager {
         return this.currentIndex;
     }
 
+    getRendition(): Renditions {
+        return this.renditions[this.currentIndex];
+    }
+
     setManualRendition(index: number): void {
         this.manualIndex = index;
     }

@@ -39,6 +39,10 @@ export class BufferBasedAbrManager implements ABRManager {
         console.log('BufferBasedAbrManager destroyed');
     }
 
+    getRendition(): Renditions {
+        return this.renditions[this.currentIndex];
+    }
+
     selectRendition(): number {
         return this.manualIndex ?? this.currentIndex;
     }

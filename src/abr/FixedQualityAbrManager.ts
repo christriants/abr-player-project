@@ -29,6 +29,10 @@ export class FixedQualityAbrManager implements ABRManager {
         console.log('FixedQualityAbrManager destroyed');
     }
 
+    getRendition(): Renditions {
+        return this.renditions[this.currentIndex];
+    }
+
     selectRendition(): number {
         return this.manualIndex ?? this.currentIndex;
     }

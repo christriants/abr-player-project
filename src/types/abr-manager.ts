@@ -9,6 +9,7 @@ export interface ABRManager {
         engine: MSEEngine,
         networkManager: NetworkManager
     ): void;
+    getRendition(): Renditions;
     selectRendition(): number;
     setManualRendition(index: number): void;
     clearManualRendition(): void;
