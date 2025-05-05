@@ -11,6 +11,8 @@ import type { Renditions } from '../types/playback';
 import type { ABRManager, ABRManagerType } from '../types/abr-manager';
 import { FixedQualityAbrManager } from '../abr/FixedQualityAbrManager';
 import { BufferBasedAbrManager } from '../abr/BufferBasedAbrManager';
+import { ThroughputAbrManager } from '../abr/ThroughputAbrManager';
+import { SimpleNetworkManager } from '../network-manager/SimpleNetworkManager';
 
 type PlayerProps = {
     src: string;
@@ -22,10 +24,18 @@ export const Player = ({ src, abr = 'fixed' }: PlayerProps) => {
     const [engine, setEngine] = useState<MSEEngine | null>(null);
     const [renditions, setRenditions] = useState<Renditions[]>([]);
     const [abrManager, setAbrManager] = useState<ABRManager | null>(null);
+    const networkManagerRef = useRef<SimpleNetworkManager | null>(null);
 
     const handleQualityChange = async (index: number) => {
         if (abr === 'fixed' && abrManager instanceof FixedQualityAbrManager) {
-            await abrManager.updateSelectedIndex(index);
+            await abrManager.setManualRendition(index);
+        }
+    };
+
+    const onPlaybackStalled = () => {
+        console.warn('Playback stalled');
+        if (abrManager && typeof abrManager.onPlaybackStall === 'function') {
+            abrManager.onPlaybackStall();
         }
     };
 
@@ -56,24 +66,46 @@ export const Player = ({ src, abr = 'fixed' }: PlayerProps) => {
                 abrManager.destroy();
             }
 
+            if (networkManagerRef.current) {
+                networkManagerRef.current.destroy();
+            }
+
+            const networkManager = new SimpleNetworkManager();
+            networkManagerRef.current = networkManager;
+
             let mseInstance;
             if (engine) {
                 await engine.reset();
                 mseInstance = engine;
             } else {
-                mseInstance = new MSEEngine(videoEl, totalDuration, codecs);
+                mseInstance = new MSEEngine(
+                    videoEl,
+                    totalDuration,
+                    codecs,
+                    networkManagerRef.current
+                );
                 setEngine(mseInstance);
                 await mseInstance.loadSegments(segmentUrls, 0);
             }
 
             let abrManagerInstance: ABRManager;
+
             if (abr === 'buffer-based') {
                 abrManagerInstance = new BufferBasedAbrManager();
+            } else if (abr === 'fixed') {
+                abrManagerInstance = new FixedQualityAbrManager();
+            } else if (abr === 'network-throughput') {
+                abrManagerInstance = new ThroughputAbrManager();
             } else {
-                abrManagerInstance = new FixedQualityAbrManager(startingIndex);
+                throw new Error(`Unsupported ABR type: ${abr}`);
             }
 
-            abrManagerInstance.initialize(videoEl, renditions, mseInstance);
+            abrManagerInstance.initialize(
+                videoEl,
+                renditions,
+                mseInstance,
+                networkManager
+            );
             setAbrManager(abrManagerInstance);
         }
 
@@ -88,6 +120,35 @@ export const Player = ({ src, abr = 'fixed' }: PlayerProps) => {
     useEffect(() => {
         const videoEl = videoRef.current;
         if (!videoEl) return;
+
+        const handleWaiting = () => {
+            console.log('Video is waiting');
+            onPlaybackStalled();
+        };
+
+        const handleTimeUpdate = () => {
+            const buffered = videoEl.buffered;
+            const currentTime = videoEl.currentTime;
+
+            let isStalled = true;
+            for (let i = 0; i < buffered.length; i++) {
+                if (
+                    currentTime >= buffered.start(i) &&
+                    currentTime <= buffered.end(i)
+                ) {
+                    isStalled = false;
+                    break;
+                }
+            }
+
+            if (isStalled) {
+                console.log('Detected potential stall during timeupdate');
+                onPlaybackStalled();
+            }
+        };
+
+        videoEl.addEventListener('waiting', handleWaiting);
+        videoEl.addEventListener('timeupdate', handleTimeUpdate);
 
         const handleError = () => {
             console.error('Video error:', videoEl.error);

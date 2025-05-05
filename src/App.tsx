@@ -5,7 +5,8 @@ import type { ABRManagerType } from './types/abr-manager';
 
 export const App = () => {
     const [manifestUrl, setManifestUrl] = useState('');
-    const [abrType, setAbrType] = useState<ABRManagerType>('buffer-based');
+    const [abrType, setAbrType] =
+        useState<ABRManagerType>('network-throughput');
 
     const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
         const target = e.target as HTMLInputElement;
@@ -32,6 +33,9 @@ export const App = () => {
                 >
                     <option value="fixed">Fixed</option>
                     <option value="buffer-based">Buffer-based</option>
+                    <option value="network-throughput">
+                        Network Throughput
+                    </option>
                 </select>
             </div>
         </>

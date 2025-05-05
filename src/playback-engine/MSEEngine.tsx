@@ -1,4 +1,5 @@
 import muxjs from 'mux.js';
+import { NetworkManager } from '../types/network-manager';
 
 export class MSEEngine {
     private transmuxer: muxjs.mp4.Transmuxer;
@@ -13,19 +14,22 @@ export class MSEEngine {
     private currentSegmentIndex: number = 0;
     private bufferMonitorInterval: number | null = null;
     private isFetching: boolean = false;
+    private networkManager?: NetworkManager;
 
     requestedSegments: Set<number> = new Set();
 
     constructor(
         videoElement: HTMLVideoElement,
         duration: number,
-        codecs: string[]
+        codecs: string[],
+        networkManager?: NetworkManager
     ) {
         this.video = videoElement;
         this.mediaSource = new MediaSource();
         this.video.src = URL.createObjectURL(this.mediaSource);
         this.duration = duration;
         this.codecs = codecs;
+        this.networkManager = networkManager;
 
         this.transmuxer = new muxjs.mp4.Transmuxer();
         this.transmuxer.on('data', (segmentData: any) => {
@@ -223,8 +227,24 @@ export class MSEEngine {
     }
 
     private async fetchSegment(url: string): Promise<Uint8Array> {
+        const startTime = performance.now();
         const response = await fetch(url);
-        return new Uint8Array(await response.arrayBuffer());
+        const data = new Uint8Array(await response.arrayBuffer());
+        const endTime = performance.now();
+
+        const downloadTimeMs = endTime - startTime;
+        const sizeBytes = data.byteLength;
+
+        if (this.networkManager) {
+            this.networkManager.onSegmentDownloaded({
+                durationSec: 3,
+                sizeBytes,
+                downloadTimeMs,
+                url,
+            });
+        }
+
+        return data;
     }
 
     private async fetchSegments(

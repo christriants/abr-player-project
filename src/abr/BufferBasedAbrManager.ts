@@ -1,5 +1,6 @@
 import { MSEEngine } from '../playback-engine/MSEEngine';
 import { ABRManager } from '../types/abr-manager';
+import { NetworkManager } from '../types/network-manager';
 import { Renditions } from '../types/playback';
 import { fetchPlaylist, fetchPlaylistData } from '../utils/fetch-playlist';
 
@@ -8,12 +9,14 @@ export class BufferBasedAbrManager implements ABRManager {
     private renditions!: Renditions[];
     private engine!: MSEEngine;
     private currentIndex = 0;
+    private manualIndex: number | null = null;
     private interval: number | undefined;
 
     initialize(
         videoEl: HTMLVideoElement,
         renditions: Renditions[],
-        engine: MSEEngine
+        engine: MSEEngine,
+        _networkManager: NetworkManager
     ) {
         this.videoEl = videoEl;
         this.renditions = renditions.sort((a, b) => a.bandwidth - b.bandwidth);
@@ -33,15 +36,30 @@ export class BufferBasedAbrManager implements ABRManager {
             clearInterval(this.interval);
             this.interval = undefined;
         }
-
         console.log('BufferBasedAbrManager destroyed');
     }
 
+    selectRendition(): number {
+        return this.manualIndex ?? this.currentIndex;
+    }
+
+    setManualRendition(index: number): void {
+        this.manualIndex = index;
+        this.loadRendition(index);
+    }
+
+    clearManualRendition(): void {
+        this.manualIndex = null;
+    }
+
+    onPlaybackStall(): void {}
+
     private async checkBufferAndSwitch() {
+        if (this.manualIndex !== null) return;
+
         const bufferLength = this.engine.getBufferedLength(
             this.videoEl.currentTime
         );
-
         console.log(
             `Buffer length: ${bufferLength}, Current resolution: ${
                 this.renditions[this.currentIndex].resolution
@@ -50,28 +68,18 @@ export class BufferBasedAbrManager implements ABRManager {
 
         if (bufferLength < 3 && this.currentIndex > 0) {
             this.currentIndex--;
-            console.log(
-                `Switching to lower quality: ${
-                    this.renditions[this.currentIndex].resolution
-                }`
-            );
-            await this.loadCurrentRendition();
+            await this.loadRendition(this.currentIndex);
         } else if (
             bufferLength > 3 &&
             this.currentIndex < this.renditions.length - 1
         ) {
             this.currentIndex++;
-            console.log(
-                `Switching to higher quality: ${
-                    this.renditions[this.currentIndex].resolution
-                }`
-            );
-            await this.loadCurrentRendition();
+            await this.loadRendition(this.currentIndex);
         }
     }
 
-    private async loadCurrentRendition() {
-        const rendition = this.renditions[this.currentIndex];
+    private async loadRendition(index: number) {
+        const rendition = this.renditions[index];
         console.log('Loading rendition:', rendition);
 
         const playlist = await fetchPlaylist(rendition.url);
@@ -82,8 +90,6 @@ export class BufferBasedAbrManager implements ABRManager {
 
         await this.engine.clearBuffer();
         this.engine.requestedSegments.clear();
-        this.videoEl.currentTime = this.videoEl.currentTime;
-
         this.engine.loadSegments(segmentUrls, this.videoEl.currentTime);
     }
 }
