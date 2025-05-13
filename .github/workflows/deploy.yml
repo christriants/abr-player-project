@@ -2,18 +2,20 @@ name: CI & Deploy
 
 permissions:
     contents: write
+    pages: write
 
 on:
     push:
         branches:
             - main
             - gha-deploy
+            - gha-workflow
 
 jobs:
     check:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - name: Setup Node.js
               uses: actions/setup-node@v3
@@ -23,17 +25,17 @@ jobs:
             - name: Install dependencies
               run: npm ci
 
-            # - name: Run tests
-            #   run: npm run test
-
             - name: Typecheck
               run: npx tsc --noEmit
 
     deploy:
         needs: check
         runs-on: ubuntu-latest
+        permissions:
+            pages: write
+            id-token: write
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - name: Setup Node.js
               uses: actions/setup-node@v3
@@ -46,8 +48,14 @@ jobs:
             - name: Build project
               run: npm run build
 
-            - name: Deploy to GitHub Pages
-              uses: peaceiris/actions-gh-pages@v3
+            - name: Validate build output
+              run: test -d ./dist || { echo "Build directory './dist' does not exist"; exit 1; }
+
+            - name: Upload artifact
+              uses: actions/upload-pages-artifact@v3
               with:
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
-                  publish_dir: ./dist
+                  name: github-pages # Changed name to match expected artifact name
+                  path: ./dist
+
+            - name: Publish to GitHub Pages
+              uses: actions/deploy-pages@v4
