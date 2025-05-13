@@ -7,7 +7,7 @@ permissions:
 on:
     push:
         branches:
-            - main
+            - '**'
 
 jobs:
     check:
@@ -32,6 +32,7 @@ jobs:
         permissions:
             pages: write
             id-token: write
+        if: github.ref == 'refs/heads/main'
         steps:
             - uses: actions/checkout@v4
 
