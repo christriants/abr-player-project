@@ -8,8 +8,6 @@ on:
     push:
         branches:
             - main
-            - gha-deploy
-            - gha-workflow
 
 jobs:
     check:
@@ -54,7 +52,7 @@ jobs:
             - name: Upload artifact
               uses: actions/upload-pages-artifact@v3
               with:
-                  name: github-pages # Changed name to match expected artifact name
+                  name: github-pages
                   path: ./dist
 
             - name: Publish to GitHub Pages
