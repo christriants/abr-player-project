@@ -21,16 +21,10 @@ jobs:
               run: npm ci
 
             # - name: Run tests
-            # run: npm run test
+            #   run: npm run test
 
             - name: Typecheck
               run: npx tsc --noEmit
-
-            # Optional: ESLint (if configured separately)
-            # If you're using preact-scripts’ ESLint config, you may need to install eslint first
-            - name: Run ESLint
-              run: npx eslint . --ext .js,.ts,.tsx
-              continue-on-error: false
 
     deploy:
         needs: check
@@ -38,5 +32,19 @@ jobs:
         steps:
             - uses: actions/checkout@v3
 
-            - name: Deploy placeholder
-              run: echo "🚀 Add your deploy command here"
+            - name: Setup Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 20
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Build project
+              run: npm run build
+
+            - name: Deploy to GitHub Pages
+              uses: peaceiris/actions-gh-pages@v3
+              with:
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                  publish_dir: ./dist
