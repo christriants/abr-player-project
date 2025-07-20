@@ -130,14 +130,9 @@ export class MSEEngine {
         this.currentSegmentIndex = Math.floor(startTime / 3);
         this.segmentFormat = this.detectSegmentFormat(urls.segmentUrls[0]);
 
-        if (this.segmentFormat === 'fmp4' && urls.initSegmentUrl) {
-            console.log('Loading init segment:', urls.initSegmentUrl);
-            this.fetchSegment(urls.initSegmentUrl)
-                .then((initSegment) => this.queueSegment(initSegment))
-                .then(() => this.fetchAndProcessNextSegment());
-        } else {
-            this.fetchAndProcessNextSegment();
-        }
+        this.initSegmentUrl = urls.initSegmentUrl;
+
+        this.fetchAndProcessNextSegment();
     }
 
     getBufferedLength(currentTime: number): number {
@@ -247,6 +242,22 @@ export class MSEEngine {
             this.sourceBuffer.addEventListener('error', (e) => {
                 console.error('SourceBuffer Error:', e);
             });
+
+            if (this.segmentFormat === 'fmp4' && this.initSegmentUrl) {
+                console.log(
+                    'Fetching and appending init segment for new SourceBuffer'
+                );
+                this.fetchSegment(this.initSegmentUrl)
+                    .then((initSegment) => {
+                        this.queueSegment(initSegment);
+                    })
+                    .catch((e) =>
+                        console.error(
+                            'Error fetching init segment on sourceopen:',
+                            e
+                        )
+                    );
+            }
         } catch (e) {
             console.error('Error creating SourceBuffer:', e);
         }
@@ -380,13 +391,7 @@ export class MSEEngine {
                 const newSegmentIndex = Math.floor(currentTime / 3);
                 this.currentSegmentIndex = newSegmentIndex;
 
-                if (this.segmentFormat === 'fmp4' && this.initSegmentUrl) {
-                    this.fetchSegment(this.initSegmentUrl)
-                        .then((initSegment) => this.queueSegment(initSegment))
-                        .then(() => this.fetchAndProcessNextSegment());
-                } else {
-                    this.fetchAndProcessNextSegment();
-                }
+                this.fetchAndProcessNextSegment();
             });
         } else {
             console.log('Seeked to a time already buffered, skipping fetch');
