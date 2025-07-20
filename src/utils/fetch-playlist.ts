@@ -46,19 +46,29 @@ export const fetchPlaylistData = async (
 ): Promise<{
     segmentUrls: string[];
     totalDuration: number;
+    initSegmentUrl?: string;
 }> => {
     const segmentUrls: string[] = [];
+    let initSegmentUrl: string | undefined;
+
     for (const line of playlistTextResponse) {
-        if (line && !line.startsWith('#')) {
+        if (line.startsWith('#EXT-X-MAP:')) {
+            const match = line.match(/URI="([^"]+)"/);
+            if (match) {
+                initSegmentUrl = new URL(match[1], url).href;
+                console.log('Found init segment URL:', initSegmentUrl);
+            }
+        } else if (line && !line.startsWith('#')) {
             segmentUrls.push(new URL(line, url).href);
         }
     }
 
-    playlistCache.set(url, segmentUrls);
-    console.log(`Cached playlist for URL: ${url}`);
-
-    return {
+    const result = {
         segmentUrls,
         totalDuration: getRenditionDuration(playlistTextResponse),
+        initSegmentUrl,
     };
+
+    console.log('Playlist data result:', result);
+    return result;
 };

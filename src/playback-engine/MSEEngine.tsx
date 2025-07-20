@@ -15,6 +15,8 @@ export class MSEEngine {
     private bufferMonitorInterval: number | null = null;
     private isFetching: boolean = false;
     private networkManager?: NetworkManager;
+    private segmentFormat: 'ts' | 'fmp4' | 'unknown' = 'unknown';
+    private initSegmentUrl?: string;
 
     requestedSegments: Set<number> = new Set();
 
@@ -108,10 +110,34 @@ export class MSEEngine {
         URL.revokeObjectURL(this.video.src);
     }
 
-    loadSegments(segmentUrls: string[], startTime: number) {
-        this.segmentUrls = segmentUrls;
+    private detectSegmentFormat(url: string): 'ts' | 'fmp4' | 'unknown' {
+        const ext = url.split('?')[0].split('.').pop()?.toLowerCase();
+
+        if (ext === 'ts') return 'ts';
+        if (ext === 'm4s' || ext === 'mp4') return 'fmp4';
+        return 'unknown';
+    }
+
+    loadSegments(
+        urls: {
+            initSegmentUrl?: string;
+            segmentUrls: string[];
+        },
+        startTime: number
+    ) {
+        console.log('Loading segments:', urls);
+        this.segmentUrls = urls.segmentUrls;
         this.currentSegmentIndex = Math.floor(startTime / 3);
-        this.fetchAndProcessNextSegment();
+        this.segmentFormat = this.detectSegmentFormat(urls.segmentUrls[0]);
+
+        if (this.segmentFormat === 'fmp4' && urls.initSegmentUrl) {
+            console.log('Loading init segment:', urls.initSegmentUrl);
+            this.fetchSegment(urls.initSegmentUrl)
+                .then((initSegment) => this.queueSegment(initSegment))
+                .then(() => this.fetchAndProcessNextSegment());
+        } else {
+            this.fetchAndProcessNextSegment();
+        }
     }
 
     getBufferedLength(currentTime: number): number {
@@ -288,8 +314,12 @@ export class MSEEngine {
         const fetchedSegments = await this.fetchSegments(startIndex, batchSize);
 
         for (const segment of fetchedSegments) {
-            this.transmuxer.push(segment);
-            this.transmuxer.flush();
+            if (this.segmentFormat === 'ts') {
+                this.transmuxer.push(segment);
+                this.transmuxer.flush();
+            } else if (this.segmentFormat === 'fmp4') {
+                this.queueSegment(segment);
+            }
         }
 
         this.currentSegmentIndex += batchSize;
@@ -350,7 +380,13 @@ export class MSEEngine {
                 const newSegmentIndex = Math.floor(currentTime / 3);
                 this.currentSegmentIndex = newSegmentIndex;
 
-                this.fetchAndProcessNextSegment();
+                if (this.segmentFormat === 'fmp4' && this.initSegmentUrl) {
+                    this.fetchSegment(this.initSegmentUrl)
+                        .then((initSegment) => this.queueSegment(initSegment))
+                        .then(() => this.fetchAndProcessNextSegment());
+                } else {
+                    this.fetchAndProcessNextSegment();
+                }
             });
         } else {
             console.log('Seeked to a time already buffered, skipping fetch');

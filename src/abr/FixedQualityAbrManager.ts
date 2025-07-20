@@ -12,7 +12,7 @@ export class FixedQualityAbrManager implements ABRManager {
     private engine!: MSEEngine;
     private playlistCache = new Map<string, string[]>();
 
-    initialize(
+    async initialize(
         videoEl: HTMLVideoElement,
         renditions: Renditions[],
         engine: MSEEngine,
@@ -50,24 +50,37 @@ export class FixedQualityAbrManager implements ABRManager {
 
     private async updateSelectedIndex(index: number) {
         if (this.currentIndex === index) return;
-
         this.currentIndex = index;
-        const rendition = this.renditions[this.currentIndex];
+        await this.loadRenditionByIndex(index);
+    }
+
+    private async loadRenditionByIndex(index: number) {
+        const rendition = this.renditions[index];
         console.log(`Switching to ${rendition.resolution}`);
 
         let segmentUrls = this.playlistCache.get(rendition.url);
+        let initSegmentUrl: string | undefined;
+
         if (!segmentUrls) {
             const playlist = await fetchPlaylist(rendition.url);
-            const { segmentUrls: fetchedSegmentUrls } = await fetchPlaylistData(
+            const playlistData = await fetchPlaylistData(
                 playlist,
                 rendition.url
             );
-            segmentUrls = fetchedSegmentUrls;
+            segmentUrls = playlistData.segmentUrls;
+            initSegmentUrl = playlistData.initSegmentUrl;
             this.playlistCache.set(rendition.url, segmentUrls);
+            console.log(`Fetched playlist for ${rendition.url}`);
         }
 
         await this.engine.clearBuffer();
         this.engine.requestedSegments.clear();
-        this.engine.loadSegments(segmentUrls, this.videoEl.currentTime);
+        this.engine.loadSegments(
+            {
+                initSegmentUrl,
+                segmentUrls,
+            },
+            this.videoEl.currentTime
+        );
     }
 }
