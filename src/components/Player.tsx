@@ -64,10 +64,8 @@ export const Player = ({
             const selectedRendition = renditions[startingIndex];
 
             const playlist = await fetchPlaylist(selectedRendition.url);
-            const { segmentUrls, totalDuration } = await fetchPlaylistData(
-                playlist,
-                selectedRendition.url
-            );
+            const { segmentUrls, totalDuration, initSegmentUrl } =
+                await fetchPlaylistData(playlist, selectedRendition.url);
 
             const codecs = selectedRendition.codecs;
 
@@ -94,7 +92,13 @@ export const Player = ({
                     networkManagerRef.current
                 );
                 setEngine(mseInstance);
-                await mseInstance.loadSegments(segmentUrls, 0);
+                await mseInstance.loadSegments(
+                    {
+                        initSegmentUrl,
+                        segmentUrls,
+                    },
+                    0
+                );
             }
 
             let abrManagerInstance: ABRManager;

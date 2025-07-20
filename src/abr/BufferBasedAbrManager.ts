@@ -87,13 +87,19 @@ export class BufferBasedAbrManager implements ABRManager {
         console.log('Loading rendition:', rendition);
 
         const playlist = await fetchPlaylist(rendition.url);
-        const { segmentUrls } = await fetchPlaylistData(
+        const { segmentUrls, initSegmentUrl } = await fetchPlaylistData(
             playlist,
             rendition.url
         );
 
         await this.engine.clearBuffer();
         this.engine.requestedSegments.clear();
-        this.engine.loadSegments(segmentUrls, this.videoEl.currentTime);
+        this.engine.loadSegments(
+            {
+                initSegmentUrl,
+                segmentUrls,
+            },
+            this.videoEl.currentTime
+        );
     }
 }
