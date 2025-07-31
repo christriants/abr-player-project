@@ -1,12 +1,12 @@
 import { MSEEngine } from '../playback-engine/MSEEngine';
 import { ABRManager } from '../types/abr-manager';
 import { NetworkManager } from '../types/network-manager';
-import { Renditions } from '../types/playback';
+import { Rendition, Renditions } from '../types/playback';
 import { fetchPlaylist, fetchPlaylistData } from '../utils/fetch-playlist';
 
 export class BufferBasedAbrManager implements ABRManager {
     private videoEl!: HTMLVideoElement;
-    private renditions!: Renditions[];
+    private renditions!: Renditions;
     private engine!: MSEEngine;
     private currentIndex = 0;
     private manualIndex: number | null = null;
@@ -14,12 +14,12 @@ export class BufferBasedAbrManager implements ABRManager {
 
     initialize(
         videoEl: HTMLVideoElement,
-        renditions: Renditions[],
+        renditions: Renditions,
         engine: MSEEngine,
         _networkManager: NetworkManager
     ) {
         this.videoEl = videoEl;
-        this.renditions = renditions.sort((a, b) => a.bandwidth - b.bandwidth);
+        this.renditions = renditions;
         this.engine = engine;
         this.currentIndex = 0;
 
@@ -39,8 +39,8 @@ export class BufferBasedAbrManager implements ABRManager {
         console.log('BufferBasedAbrManager destroyed');
     }
 
-    getRendition(): Renditions {
-        return this.renditions[this.currentIndex];
+    getRendition(): Rendition {
+        return this.renditions.video[this.currentIndex];
     }
 
     selectRendition(): number {
@@ -66,7 +66,7 @@ export class BufferBasedAbrManager implements ABRManager {
         );
         console.log(
             `Buffer length: ${bufferLength}, Current resolution: ${
-                this.renditions[this.currentIndex].resolution
+                this.renditions.video[this.currentIndex].resolution
             }`
         );
 
@@ -75,7 +75,7 @@ export class BufferBasedAbrManager implements ABRManager {
             await this.loadRendition(this.currentIndex);
         } else if (
             bufferLength > 3 &&
-            this.currentIndex < this.renditions.length - 1
+            this.currentIndex < this.renditions.video.length - 1
         ) {
             this.currentIndex++;
             await this.loadRendition(this.currentIndex);
@@ -83,21 +83,34 @@ export class BufferBasedAbrManager implements ABRManager {
     }
 
     private async loadRendition(index: number) {
-        const rendition = this.renditions[index];
-        console.log('Loading rendition:', rendition);
+        const videoRendition = this.renditions.video[index];
+        const audioRendition = this.renditions.audio[0];
 
-        const playlist = await fetchPlaylist(rendition.url);
-        const { segmentUrls, initSegmentUrl } = await fetchPlaylistData(
-            playlist,
-            rendition.url
+        const videoPlaylist = await fetchPlaylist(videoRendition.url);
+        const audioPlaylist = await fetchPlaylist(audioRendition.url);
+        const {
+            segmentUrls: videoSegmentUrls,
+            initSegmentUrl: videoInitSegmentUrl,
+        } = await fetchPlaylistData(videoPlaylist, videoRendition.url);
+
+        const { segmentUrls: audioSegmentUrls } = await fetchPlaylistData(
+            audioPlaylist,
+            audioRendition.url
         );
 
-        await this.engine.clearBuffer();
-        this.engine.requestedSegments.clear();
+        await this.engine.clearBuffers();
+        this.engine.requestedSegments.video.clear();
+        this.engine.requestedSegments.audio.clear();
         this.engine.loadSegments(
             {
-                initSegmentUrl,
-                segmentUrls,
+                initSegmentUrls: {
+                    video: videoInitSegmentUrl,
+                    audio: audioSegmentUrls[0],
+                },
+                segmentUrls: {
+                    video: videoSegmentUrls,
+                    audio: audioSegmentUrls,
+                },
             },
             this.videoEl.currentTime
         );

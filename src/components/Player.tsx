@@ -7,7 +7,7 @@ import {
     fetchPlaylistData,
 } from '../utils/fetch-playlist';
 import { QualitySelector } from './QualitySelector';
-import type { Renditions } from '../types/playback';
+import type { Rendition, Renditions } from '../types/playback';
 import type { ABRManager, ABRManagerType } from '../types/abr-manager';
 import { FixedQualityAbrManager } from '../abr/FixedQualityAbrManager';
 import { BufferBasedAbrManager } from '../abr/BufferBasedAbrManager';
@@ -18,7 +18,7 @@ type PlayerProps = {
     src: string;
     abr?: ABRManagerType;
     onDebugInfoUpdate: (info: {
-        currentRendition: Renditions['resolution'];
+        currentRendition: Rendition['resolution'];
         estimatedBandwidth: number;
         bufferLength: number;
     }) => void;
@@ -31,7 +31,7 @@ export const Player = ({
 }: PlayerProps) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [engine, setEngine] = useState<MSEEngine | null>(null);
-    const [renditions, setRenditions] = useState<Renditions[]>([]);
+    const [renditions, setRenditions] = useState<Renditions | null>(null);
     const [abrManager, setAbrManager] = useState<ABRManager | null>(null);
     const networkManagerRef = useRef<SimpleNetworkManager | null>(null);
 
@@ -58,16 +58,27 @@ export const Player = ({
             const renditions = await fetchManifest(src);
             setRenditions(renditions);
 
-            if (!renditions.length) return;
+            if (!renditions.video.length) return;
 
             const startingIndex = 0;
-            const selectedRendition = renditions[startingIndex];
+            const videoRendition = renditions.video[startingIndex];
+            const audioRendition = renditions.audio[0];
 
-            const playlist = await fetchPlaylist(selectedRendition.url);
-            const { segmentUrls, totalDuration, initSegmentUrl } =
-                await fetchPlaylistData(playlist, selectedRendition.url);
+            const videoPlaylist = await fetchPlaylist(videoRendition.url);
+            const audioPlaylist = await fetchPlaylist(audioRendition.url);
 
-            const codecs = selectedRendition.codecs;
+            const {
+                segmentUrls: videoSegmentUrls,
+                totalDuration: videoDuration,
+                initSegmentUrl: videoInitSegmentUrl,
+            } = await fetchPlaylistData(videoPlaylist, videoRendition.url);
+
+            const {
+                segmentUrls: audioSegmentUrls,
+                initSegmentUrl: audioInitSegmentUrl,
+            } = await fetchPlaylistData(audioPlaylist, audioRendition.url);
+
+            const codecs = videoRendition.codecs;
 
             if (abrManager) {
                 abrManager.destroy();
@@ -87,15 +98,22 @@ export const Player = ({
             } else {
                 mseInstance = new MSEEngine(
                     videoEl,
-                    totalDuration,
+                    videoDuration,
                     codecs,
                     networkManagerRef.current
                 );
+
                 setEngine(mseInstance);
                 await mseInstance.loadSegments(
                     {
-                        initSegmentUrl,
-                        segmentUrls,
+                        initSegmentUrls: {
+                            video: videoInitSegmentUrl || videoSegmentUrls[0],
+                            audio: audioInitSegmentUrl || audioSegmentUrls[0],
+                        },
+                        segmentUrls: {
+                            video: videoSegmentUrls,
+                            audio: audioSegmentUrls,
+                        },
                     },
                     0
                 );
@@ -211,7 +229,7 @@ export const Player = ({
     return (
         <>
             <video ref={videoRef} width="640" height="360" controls></video>
-            {abr === 'fixed' && (
+            {abr === 'fixed' && renditions && (
                 <QualitySelector
                     renditions={renditions}
                     onSelect={handleQualityChange}

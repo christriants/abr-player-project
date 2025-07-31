@@ -1,11 +1,14 @@
 import type { ABRManager } from '../types/abr-manager';
 import { MSEEngine } from '../playback-engine/MSEEngine';
-import type { Renditions } from '../types/playback';
+import type { Rendition, Renditions } from '../types/playback';
 import { NetworkManager } from '../types/network-manager';
 import { fetchPlaylist, fetchPlaylistData } from '../utils/fetch-playlist';
 
 export class ThroughputAbrManager implements ABRManager {
-    private renditions: Renditions[] = [];
+    private renditions: Renditions = {
+        video: [],
+        audio: [],
+    };
     private videoEl!: HTMLVideoElement;
     private engine!: MSEEngine;
     private manualIndex: number | null = null;
@@ -16,7 +19,10 @@ export class ThroughputAbrManager implements ABRManager {
 
     initialize(
         videoEl: HTMLVideoElement,
-        renditions: Renditions[],
+        renditions: {
+            video: Rendition[];
+            audio: Rendition[];
+        },
         engine: MSEEngine,
         networkManager: NetworkManager
     ): void {
@@ -24,9 +30,14 @@ export class ThroughputAbrManager implements ABRManager {
         this.renditions = renditions;
         this.engine = engine;
         this.networkManager = networkManager;
-        this.renditions = [...renditions].sort(
-            (a, b) => a.bandwidth - b.bandwidth
-        );
+        this.renditions = {
+            video: this.renditions.video.sort(
+                (a, b) => a.bandwidth - b.bandwidth
+            ),
+            audio: this.renditions.audio.sort(
+                (a, b) => a.bandwidth - b.bandwidth
+            ),
+        };
 
         const startingIndex = this.selectRendition();
         this.currentIndex = startingIndex;
@@ -42,7 +53,7 @@ export class ThroughputAbrManager implements ABRManager {
             const selectedIndex = this.selectRendition();
             if (selectedIndex !== this.currentIndex) {
                 console.log(
-                    `Switching to rendition: ${this.renditions[selectedIndex].resolution}`
+                    `Switching to rendition: ${this.renditions.video[selectedIndex].resolution}`
                 );
                 this.loadRendition(selectedIndex);
             }
@@ -56,8 +67,8 @@ export class ThroughputAbrManager implements ABRManager {
         const safeBps = estimatedBps / this.bandwidthSafetyMargin;
 
         let bestIndex = 0;
-        for (let i = 0; i < this.renditions.length; i++) {
-            const rendition = this.renditions[i];
+        for (let i = 0; i < this.renditions.video.length; i++) {
+            const rendition = this.renditions.video[i];
             if (rendition.bandwidth <= safeBps) {
                 bestIndex = i;
             } else {
@@ -65,7 +76,7 @@ export class ThroughputAbrManager implements ABRManager {
             }
         }
 
-        const currentRendition = this.renditions[this.currentIndex];
+        const currentRendition = this.renditions.video[this.currentIndex];
 
         const shouldDownswitch =
             estimatedBps < currentRendition.bandwidth * 0.9 &&
@@ -74,16 +85,6 @@ export class ThroughputAbrManager implements ABRManager {
         const shouldUpswitch =
             estimatedBps > currentRendition.bandwidth * 1.1 &&
             bestIndex > this.currentIndex;
-
-        console.log({
-            estimatedBps,
-            safeBps,
-            currentBandwidth: currentRendition.bandwidth,
-            bestIndex,
-            currentIndex: this.currentIndex,
-            shouldDownswitch,
-            shouldUpswitch,
-        });
 
         if (shouldDownswitch) {
             console.log(
@@ -102,8 +103,8 @@ export class ThroughputAbrManager implements ABRManager {
         return this.currentIndex;
     }
 
-    getRendition(): Renditions {
-        return this.renditions[this.currentIndex];
+    getRendition(): Rendition {
+        return this.renditions.video[this.currentIndex];
     }
 
     setManualRendition(index: number): void {
@@ -116,7 +117,7 @@ export class ThroughputAbrManager implements ABRManager {
         const selectedIndex = this.selectRendition();
         if (selectedIndex !== this.currentIndex) {
             console.log(
-                `Switching to rendition: ${this.renditions[selectedIndex].resolution}`
+                `Switching to rendition: ${this.renditions.video[selectedIndex].resolution}`
             );
             this.loadRendition(selectedIndex);
         }
@@ -126,7 +127,7 @@ export class ThroughputAbrManager implements ABRManager {
         const selectedIndex = this.selectRendition();
         if (selectedIndex !== this.currentIndex) {
             console.log(
-                `Downswitching to rendition: ${this.renditions[selectedIndex].resolution}`
+                `Downswitching to rendition: ${this.renditions.video[selectedIndex].resolution}`
             );
             this.loadRendition(selectedIndex);
         }
@@ -134,21 +135,34 @@ export class ThroughputAbrManager implements ABRManager {
 
     private async loadRendition(index: number): Promise<void> {
         this.currentIndex = index;
-        const rendition = this.renditions[index];
-        console.log(`Loading rendition: ${rendition.resolution}`);
+        const videoRendition = this.renditions.video[index];
+        const audioRendition = this.renditions.audio[0];
 
-        const playlist = await fetchPlaylist(rendition.url);
-        const { segmentUrls, initSegmentUrl } = await fetchPlaylistData(
-            playlist,
-            rendition.url
+        const videoPlaylist = await fetchPlaylist(videoRendition.url);
+        const audioPlaylist = await fetchPlaylist(audioRendition.url);
+        const {
+            segmentUrls: videoSegmentUrls,
+            initSegmentUrl: videoInitSegmentUrl,
+        } = await fetchPlaylistData(videoPlaylist, videoRendition.url);
+
+        const { segmentUrls: audioSegmentUrls } = await fetchPlaylistData(
+            audioPlaylist,
+            audioRendition.url
         );
 
-        await this.engine.clearBuffer();
-        this.engine.requestedSegments.clear();
+        await this.engine.clearBuffers();
+        this.engine.requestedSegments.video.clear();
+        this.engine.requestedSegments.audio.clear();
         this.engine.loadSegments(
             {
-                initSegmentUrl,
-                segmentUrls,
+                initSegmentUrls: {
+                    video: videoInitSegmentUrl,
+                    audio: audioSegmentUrls[0],
+                },
+                segmentUrls: {
+                    video: videoSegmentUrls,
+                    audio: audioSegmentUrls,
+                },
             },
             this.videoEl.currentTime
         );
