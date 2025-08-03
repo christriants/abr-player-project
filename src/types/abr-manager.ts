@@ -1,15 +1,15 @@
 import { MSEEngine } from '../playback-engine/MSEEngine';
 import { NetworkManager } from './network-manager';
-import { Renditions } from './playback';
+import { Rendition, Renditions } from './playback';
 
 export interface ABRManager {
     initialize(
         videoEl: HTMLVideoElement,
-        renditions: Renditions[],
+        renditions: Renditions,
         engine: MSEEngine,
         networkManager: NetworkManager
     ): void;
-    getRendition(): Renditions;
+    getRendition(): Rendition;
     selectRendition(): number;
     setManualRendition(index: number): void;
     clearManualRendition(): void;

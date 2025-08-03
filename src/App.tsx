@@ -6,8 +6,7 @@ import { formatBandwidth } from './utils/format-bandwidth';
 
 export const App = () => {
     const [manifestUrl, setManifestUrl] = useState('');
-    const [abrType, setAbrType] =
-        useState<ABRManagerType>('network-throughput');
+    const [abrType, setAbrType] = useState<ABRManagerType>('buffer-based');
 
     const [debugInfo, setDebugInfo] = useState({
         currentRendition: '',

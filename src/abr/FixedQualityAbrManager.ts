@@ -1,20 +1,19 @@
 import { MSEEngine } from '../playback-engine/MSEEngine';
 import { ABRManager } from '../types/abr-manager';
 import { NetworkManager } from '../types/network-manager';
-import { Renditions } from '../types/playback';
+import { Rendition, Renditions } from '../types/playback';
 import { fetchPlaylist, fetchPlaylistData } from '../utils/fetch-playlist';
 
 export class FixedQualityAbrManager implements ABRManager {
     private currentIndex = 0;
     private manualIndex: number | null = null;
     private videoEl!: HTMLVideoElement;
-    private renditions!: Renditions[];
+    private renditions!: Renditions;
     private engine!: MSEEngine;
-    private playlistCache = new Map<string, string[]>();
 
     async initialize(
         videoEl: HTMLVideoElement,
-        renditions: Renditions[],
+        renditions: Renditions,
         engine: MSEEngine,
         _networkManager: NetworkManager
     ) {
@@ -29,8 +28,8 @@ export class FixedQualityAbrManager implements ABRManager {
         console.log('FixedQualityAbrManager destroyed');
     }
 
-    getRendition(): Renditions {
-        return this.renditions[this.currentIndex];
+    getRendition(): Rendition {
+        return this.renditions.video[this.currentIndex];
     }
 
     selectRendition(): number {
@@ -55,30 +54,34 @@ export class FixedQualityAbrManager implements ABRManager {
     }
 
     private async loadRenditionByIndex(index: number) {
-        const rendition = this.renditions[index];
-        console.log(`Switching to ${rendition.resolution}`);
+        const videoRendition = this.renditions.video[index];
+        const audioRendition = this.renditions.audio[0];
 
-        let segmentUrls = this.playlistCache.get(rendition.url);
-        let initSegmentUrl: string | undefined;
+        const videoPlaylist = await fetchPlaylist(videoRendition.url);
+        const audioPlaylist = await fetchPlaylist(audioRendition.url);
+        const {
+            segmentUrls: videoSegmentUrls,
+            initSegmentUrl: videoInitSegmentUrl,
+        } = await fetchPlaylistData(videoPlaylist, videoRendition.url);
 
-        if (!segmentUrls) {
-            const playlist = await fetchPlaylist(rendition.url);
-            const playlistData = await fetchPlaylistData(
-                playlist,
-                rendition.url
-            );
-            segmentUrls = playlistData.segmentUrls;
-            initSegmentUrl = playlistData.initSegmentUrl;
-            this.playlistCache.set(rendition.url, segmentUrls);
-            console.log(`Fetched playlist for ${rendition.url}`);
-        }
+        const { segmentUrls: audioSegmentUrls } = await fetchPlaylistData(
+            audioPlaylist,
+            audioRendition.url
+        );
 
-        await this.engine.clearBuffer();
-        this.engine.requestedSegments.clear();
+        await this.engine.clearBuffers();
+        this.engine.requestedSegments.video.clear();
+        this.engine.requestedSegments.audio.clear();
         this.engine.loadSegments(
             {
-                initSegmentUrl,
-                segmentUrls,
+                initSegmentUrls: {
+                    video: videoInitSegmentUrl,
+                    audio: audioSegmentUrls[0],
+                },
+                segmentUrls: {
+                    video: videoSegmentUrls,
+                    audio: audioSegmentUrls,
+                },
             },
             this.videoEl.currentTime
         );

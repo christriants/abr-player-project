@@ -3,6 +3,7 @@ import { parseCodecsFromPlaylist } from './parse-codecs-from-playlist';
 const playlistCache = new Map<string, string[]>();
 
 export const fetchPlaylist = async (url: string): Promise<string[]> => {
+    console.log(`Fetching playlist from URL: ${url}`);
     if (playlistCache.has(url)) {
         console.log(`Using cached playlist for URL: ${url}`);
         return playlistCache.get(url)!;
@@ -17,6 +18,7 @@ export const fetchPlaylist = async (url: string): Promise<string[]> => {
     const playlist = text.split('\n').map((line) => line.trim());
     playlistCache.set(url, playlist);
     console.log(`Cached playlist for URL: ${url}`);
+
     return playlist;
 };
 

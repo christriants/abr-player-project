@@ -1,7 +1,7 @@
 import { Renditions } from '../types/playback';
 
 type QualitySelectorProps = {
-    renditions: Renditions[];
+    renditions: Renditions;
     onSelect: (index: number) => void;
 };
 
@@ -11,7 +11,7 @@ export const QualitySelector = ({
 }: QualitySelectorProps) => {
     return (
         <div className="quality-selector">
-            {renditions.map((rendition, i) => (
+            {renditions.video.map((rendition, i) => (
                 <button key={rendition.resolution} onClick={() => onSelect(i)}>
                     {rendition.resolution}
                 </button>

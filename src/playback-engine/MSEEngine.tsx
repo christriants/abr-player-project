@@ -3,22 +3,32 @@ import { NetworkManager } from '../types/network-manager';
 
 export class MSEEngine {
     private transmuxer: muxjs.mp4.Transmuxer;
+    private audioTransmuxer?: muxjs.mp4.Transmuxer;
     private video: HTMLVideoElement;
     private duration: number;
     private mediaSource: MediaSource;
-    private sourceBuffer!: SourceBuffer;
+    private videoSourceBuffer?: SourceBuffer;
+    private audioSourceBuffer?: SourceBuffer;
+    private videoQueue: Uint8Array[] = [];
+    private audioQueue: Uint8Array[] = [];
+    private isVideoAppending: boolean = false;
+    private isAudioAppending: boolean = false;
     private codecs: string[];
-    private segmentQueue: Uint8Array[] = [];
-    private isAppending: boolean = false;
-    private segmentUrls: string[] = [];
+    private segmentUrls: { video: string[]; audio: string[] } = {
+        video: [],
+        audio: [],
+    };
     private currentSegmentIndex: number = 0;
     private bufferMonitorInterval: number | null = null;
     private isFetching: boolean = false;
     private networkManager?: NetworkManager;
     private segmentFormat: 'ts' | 'fmp4' | 'unknown' = 'unknown';
-    private initSegmentUrl?: string;
+    private initSegmentUrls?: { video?: string; audio?: string };
 
-    requestedSegments: Set<number> = new Set();
+    requestedSegments: { video: Set<number>; audio: Set<number> } = {
+        video: new Set(),
+        audio: new Set(),
+    };
 
     constructor(
         videoElement: HTMLVideoElement,
@@ -35,30 +45,64 @@ export class MSEEngine {
 
         this.transmuxer = new muxjs.mp4.Transmuxer();
         this.transmuxer.on('data', (segmentData: any) => {
-            const mp4Segment = new Uint8Array(
-                segmentData.initSegment.byteLength + segmentData.data.byteLength
-            );
-            mp4Segment.set(segmentData.initSegment, 0);
-            mp4Segment.set(
-                segmentData.data,
-                segmentData.initSegment.byteLength
-            );
+            if (segmentData.initSegment && segmentData.data) {
+                const mp4Segment = new Uint8Array(
+                    segmentData.initSegment.byteLength +
+                        segmentData.data.byteLength
+                );
+                mp4Segment.set(segmentData.initSegment, 0);
+                mp4Segment.set(
+                    segmentData.data,
+                    segmentData.initSegment.byteLength
+                );
 
-            this.queueSegment(mp4Segment);
+                this.queueSegment(mp4Segment, 'video');
+            } else {
+                console.warn('Incomplete transmuxer data:', segmentData);
+            }
         });
 
         this.setup();
+    }
+
+    private createAudioTransmuxer() {
+        if (this.audioTransmuxer) return;
+
+        console.log('Creating separate audio transmuxer');
+        this.audioTransmuxer = new muxjs.mp4.Transmuxer({
+            keepOriginalTimestamps: true,
+            remux: true,
+        });
+
+        this.audioTransmuxer.on('data', (segmentData: any) => {
+            if (segmentData.initSegment && segmentData.data) {
+                const mp4Segment = new Uint8Array(
+                    segmentData.initSegment.byteLength +
+                        segmentData.data.byteLength
+                );
+                mp4Segment.set(segmentData.initSegment, 0);
+                mp4Segment.set(
+                    segmentData.data,
+                    segmentData.initSegment.byteLength
+                );
+
+                this.queueSegment(mp4Segment, 'audio');
+            }
+        });
+
+        this.audioTransmuxer.on('error', (error: any) => {
+            console.error('Audio transmuxer error:', error);
+        });
     }
 
     private setup() {
         this.mediaSource.addEventListener('sourceopen', () => {
             console.log('MediaSource opened');
 
-            this.initSourceBuffer();
+            this.initSourceBuffers();
 
             if (this.duration) {
                 this.mediaSource.duration = this.duration;
-                console.log('MediaSource duration set to:', this.duration);
             }
 
             this.startBufferMonitor();
@@ -67,15 +111,21 @@ export class MSEEngine {
     }
 
     reset(): void {
-        console.log('Resetting engine state');
-
         this.stopBufferMonitor();
 
-        if (this.sourceBuffer) {
+        if (this.videoSourceBuffer) {
             try {
-                this.mediaSource.removeSourceBuffer(this.sourceBuffer);
+                this.mediaSource.removeSourceBuffer(this.videoSourceBuffer);
             } catch (e) {
-                console.warn('Failed to remove SourceBuffer:', e);
+                console.warn('Failed to remove video SourceBuffer:', e);
+            }
+        }
+
+        if (this.audioSourceBuffer) {
+            try {
+                this.mediaSource.removeSourceBuffer(this.audioSourceBuffer);
+            } catch (e) {
+                console.warn('Failed to remove audio SourceBuffer:', e);
             }
         }
 
@@ -92,11 +142,12 @@ export class MSEEngine {
 
         this.setup();
 
-        this.clearBuffer().then(() => {
-            this.requestedSegments.clear();
+        this.clearBuffers().then(() => {
+            this.requestedSegments.video.clear();
+            this.requestedSegments.audio.clear();
             this.currentSegmentIndex = 0;
-            this.segmentQueue = [];
-            this.isAppending = false;
+            this.videoQueue = [];
+            this.audioQueue = [];
         });
     }
 
@@ -120,18 +171,30 @@ export class MSEEngine {
 
     loadSegments(
         urls: {
-            initSegmentUrl?: string;
-            segmentUrls: string[];
+            initSegmentUrls?: { video?: string; audio?: string };
+            segmentUrls: { video: string[]; audio: string[] };
         },
         startTime: number
     ) {
-        console.log('Loading segments:', urls);
+        this.initSegmentUrls = urls.initSegmentUrls;
         this.segmentUrls = urls.segmentUrls;
+
+        if (urls.segmentUrls.audio.length > 0) {
+            const audioFormat = this.detectSegmentFormat(
+                urls.segmentUrls.audio[0]
+            );
+            if (audioFormat === 'ts') {
+                this.createAudioTransmuxer();
+            }
+        }
+
+        const firstSegmentUrl = Array.isArray(urls.segmentUrls)
+            ? urls.segmentUrls[0]
+            : urls.segmentUrls.video[0] || urls.segmentUrls.audio[0];
+
+        this.segmentFormat = this.detectSegmentFormat(firstSegmentUrl);
+
         this.currentSegmentIndex = Math.floor(startTime / 3);
-        this.segmentFormat = this.detectSegmentFormat(urls.segmentUrls[0]);
-
-        this.initSegmentUrl = urls.initSegmentUrl;
-
         this.fetchAndProcessNextSegment();
     }
 
@@ -147,9 +210,32 @@ export class MSEEngine {
         return 0;
     }
 
-    clearBuffer(): Promise<void> {
+    clearBuffers(): Promise<void> {
+        const promises: Promise<void>[] = [];
+
+        if (this.videoSourceBuffer) {
+            promises.push(this.clearBuffer(this.videoSourceBuffer));
+        }
+
+        if (this.audioSourceBuffer) {
+            promises.push(this.clearBuffer(this.audioSourceBuffer));
+        }
+
+        if (promises.length === 0) {
+            this.requestedSegments.video.clear();
+            this.requestedSegments.audio.clear();
+            return Promise.resolve();
+        }
+
+        return Promise.all(promises).then(() => {
+            this.requestedSegments.video.clear();
+            this.requestedSegments.audio.clear();
+        });
+    }
+
+    private clearBuffer(sourceBuffer: SourceBuffer): Promise<void> {
         return new Promise((resolve) => {
-            if (!this.sourceBuffer) {
+            if (!sourceBuffer) {
                 console.warn('No SourceBuffer to clear');
                 resolve();
                 return;
@@ -157,7 +243,7 @@ export class MSEEngine {
 
             const isSourceBufferValid = Array.from(
                 this.mediaSource.sourceBuffers
-            ).some((buffer) => buffer === this.sourceBuffer);
+            ).some((buffer) => buffer === sourceBuffer);
 
             if (!isSourceBufferValid) {
                 console.error('SourceBuffer is no longer valid');
@@ -166,40 +252,35 @@ export class MSEEngine {
             }
 
             const tryClear = () => {
-                if (!this.sourceBuffer || this.sourceBuffer.updating) {
+                if (!sourceBuffer || sourceBuffer.updating) {
                     setTimeout(tryClear, 50);
                     return;
                 }
 
                 try {
-                    const buffered = this.sourceBuffer.buffered;
+                    const buffered = sourceBuffer.buffered;
                     const currentTime = this.video.currentTime;
 
                     if (buffered.length === 0) {
-                        this.requestedSegments.clear();
                         resolve();
                         return;
                     }
 
                     const handleUpdateEnd = () => {
-                        this.sourceBuffer.removeEventListener(
+                        sourceBuffer.removeEventListener(
                             'updateend',
                             handleUpdateEnd
                         );
-                        this.requestedSegments.clear();
                         resolve();
                     };
 
-                    this.sourceBuffer.addEventListener(
-                        'updateend',
-                        handleUpdateEnd
-                    );
+                    sourceBuffer.addEventListener('updateend', handleUpdateEnd);
 
                     for (let i = 0; i < buffered.length; i++) {
                         const start = buffered.start(i);
                         const end = buffered.end(i);
                         if (end < currentTime || start > currentTime + 5) {
-                            this.sourceBuffer.remove(start, end);
+                            sourceBuffer.remove(start, end);
                         }
                     }
                 } catch (e) {
@@ -212,55 +293,94 @@ export class MSEEngine {
         });
     }
 
-    private initSourceBuffer() {
-        let supportedCodec: string | null = null;
+    private initSourceBuffers() {
+        const videoCodecs: string[] = [];
+        const audioCodecs: string[] = [];
 
         for (const codec of this.codecs) {
-            console.log('Checking codec support for:', codec);
-            const mimeCodec = `video/mp4; codecs="${codec}"`;
-            if (MediaSource.isTypeSupported(mimeCodec)) {
-                supportedCodec = mimeCodec;
-                break;
+            if (
+                codec.startsWith('avc1') ||
+                codec.startsWith('hev1') ||
+                codec.startsWith('hvc1')
+            ) {
+                videoCodecs.push(codec);
+            } else if (codec.startsWith('mp4a')) {
+                audioCodecs.push(codec);
             }
         }
 
-        if (!supportedCodec) {
-            console.error('No supported codecs found:', this.codecs);
-            return;
+        const hasSeparateAudio = this.segmentUrls.audio.length > 0;
+        const hasSeparateVideo = this.segmentUrls.video.length > 0;
+
+        if (videoCodecs.length > 0) {
+            const videoMimeType = `video/mp4; codecs="${videoCodecs[0]}"`;
+            if (MediaSource.isTypeSupported(videoMimeType)) {
+                this.videoSourceBuffer = this.createSourceBuffer(
+                    videoMimeType,
+                    'video'
+                );
+                console.log('Created video SourceBuffer with:', videoMimeType);
+            }
         }
 
-        try {
-            this.sourceBuffer =
-                this.mediaSource.addSourceBuffer(supportedCodec);
-            this.sourceBuffer.mode = 'segments';
-
-            this.sourceBuffer.addEventListener('updateend', () => {
-                this.isAppending = false;
-                this.processQueue();
-            });
-
-            this.sourceBuffer.addEventListener('error', (e) => {
-                console.error('SourceBuffer Error:', e);
-            });
-
-            if (this.segmentFormat === 'fmp4' && this.initSegmentUrl) {
-                console.log(
-                    'Fetching and appending init segment for new SourceBuffer'
+        if (audioCodecs.length > 0) {
+            const audioMimeType = `audio/mp4; codecs="${audioCodecs[0]}"`;
+            if (MediaSource.isTypeSupported(audioMimeType)) {
+                this.audioSourceBuffer = this.createSourceBuffer(
+                    audioMimeType,
+                    'audio'
                 );
-                this.fetchSegment(this.initSegmentUrl)
+            }
+        }
+
+        // Load init segments if needed (only for fMP4)
+        if (this.segmentFormat === 'fmp4' && this.initSegmentUrls) {
+            if (this.initSegmentUrls.video && this.videoSourceBuffer) {
+                console.log('Loading video init segment');
+                this.fetchSegment(this.initSegmentUrls.video)
                     .then((initSegment) => {
-                        this.queueSegment(initSegment);
+                        this.queueSegment(initSegment, 'video');
                     })
                     .catch((e) =>
-                        console.error(
-                            'Error fetching init segment on sourceopen:',
-                            e
-                        )
+                        console.error('Error fetching video init segment:', e)
                     );
             }
-        } catch (e) {
-            console.error('Error creating SourceBuffer:', e);
+
+            if (this.initSegmentUrls.audio && this.audioSourceBuffer) {
+                console.log('Loading audio init segment');
+                this.fetchSegment(this.initSegmentUrls.audio)
+                    .then((initSegment) => {
+                        this.queueSegment(initSegment, 'audio');
+                    })
+                    .catch((e) =>
+                        console.error('Error fetching audio init segment:', e)
+                    );
+            }
         }
+    }
+
+    private createSourceBuffer(
+        mimeType: string,
+        type: 'video' | 'audio'
+    ): SourceBuffer {
+        const buffer = this.mediaSource.addSourceBuffer(mimeType);
+        buffer.mode = 'segments';
+
+        buffer.addEventListener('updateend', () => {
+            if (type === 'video') {
+                this.isVideoAppending = false;
+                this.processVideoQueue();
+            } else {
+                this.isAudioAppending = false;
+                this.processAudioQueue();
+            }
+        });
+
+        buffer.addEventListener('error', (e) => {
+            console.error(`${type} SourceBuffer Error:`, e);
+        });
+
+        return buffer;
     }
 
     private async fetchSegment(url: string): Promise<Uint8Array> {
@@ -287,31 +407,52 @@ export class MSEEngine {
     private async fetchSegments(
         startIndex: number,
         batchSize: number
-    ): Promise<Uint8Array[]> {
-        const segmentsToFetch = this.segmentUrls.slice(
-            startIndex,
-            startIndex + batchSize
-        );
-        const fetchedSegments: Uint8Array[] = [];
+    ): Promise<{ video: Uint8Array[]; audio: Uint8Array[] }> {
+        const result = { video: [] as Uint8Array[], audio: [] as Uint8Array[] };
 
-        for (let i = 0; i < segmentsToFetch.length; i++) {
-            const index = startIndex + i;
+        if (this.segmentUrls.video.length > 0) {
+            const videoSegmentsToFetch = this.segmentUrls.video.slice(
+                startIndex,
+                startIndex + batchSize
+            );
 
-            if (this.requestedSegments.has(index)) {
-                continue;
+            for (let i = 0; i < videoSegmentsToFetch.length; i++) {
+                const index = startIndex + i;
+                if (this.requestedSegments.video.has(index)) continue;
+
+                const url = videoSegmentsToFetch[i];
+                try {
+                    const data = await this.fetchSegment(url);
+                    this.requestedSegments.video.add(index);
+                    result.video.push(data);
+                } catch (e) {
+                    console.error('Error fetching video segment:', e);
+                }
             }
 
-            const url = segmentsToFetch[i];
-            try {
-                const data = await this.fetchSegment(url);
-                this.requestedSegments.add(index);
-                fetchedSegments.push(data);
-            } catch (e) {
-                console.error('Error fetching segment:', e);
+            if (this.segmentUrls.audio.length > 0) {
+                const audioSegmentsToFetch = this.segmentUrls.audio.slice(
+                    startIndex,
+                    startIndex + batchSize
+                );
+
+                for (let i = 0; i < audioSegmentsToFetch.length; i++) {
+                    const index = startIndex + i;
+                    if (this.requestedSegments.audio.has(index)) continue;
+
+                    const url = audioSegmentsToFetch[i];
+                    try {
+                        const data = await this.fetchSegment(url);
+                        this.requestedSegments.audio.add(index);
+                        result.audio.push(data);
+                    } catch (e) {
+                        console.error('Error fetching audio segment:', e);
+                    }
+                }
             }
         }
 
-        return fetchedSegments;
+        return result;
     }
 
     private async fetchAndProcessNextSegment() {
@@ -324,12 +465,35 @@ export class MSEEngine {
 
         const fetchedSegments = await this.fetchSegments(startIndex, batchSize);
 
-        for (const segment of fetchedSegments) {
+        for (const segment of fetchedSegments.video) {
             if (this.segmentFormat === 'ts') {
                 this.transmuxer.push(segment);
                 this.transmuxer.flush();
             } else if (this.segmentFormat === 'fmp4') {
-                this.queueSegment(segment);
+                this.queueSegment(segment, 'video');
+            }
+        }
+
+        for (const segment of fetchedSegments.audio) {
+            console.log(
+                'Processing audio segment, format:',
+                this.segmentFormat,
+                'size:',
+                segment.byteLength
+            );
+            if (this.segmentFormat === 'ts') {
+                if (this.audioTransmuxer) {
+                    this.audioTransmuxer.push(segment);
+                    this.audioTransmuxer.flush();
+                } else {
+                    console.warn(
+                        'No separate audio transmuxer, using main transmuxer'
+                    );
+                    this.transmuxer.push(segment);
+                    this.transmuxer.flush();
+                }
+            } else if (this.segmentFormat === 'fmp4') {
+                this.queueSegment(segment, 'audio');
             }
         }
 
@@ -337,44 +501,83 @@ export class MSEEngine {
         this.isFetching = false;
     }
 
-    private queueSegment(data: Uint8Array) {
-        if (!this.sourceBuffer) {
-            this.segmentQueue.push(data);
-            return;
+    private queueSegment(data: Uint8Array, type: 'video' | 'audio') {
+        if (type === 'video') {
+            if (!this.videoSourceBuffer) {
+                console.warn('No video source buffer available');
+                return;
+            }
+            this.videoQueue.push(data);
+            this.processVideoQueue();
+        } else {
+            if (!this.audioSourceBuffer) {
+                console.warn('No audio source buffer available');
+                return;
+            }
+            this.audioQueue.push(data);
+            this.processAudioQueue();
         }
-
-        this.segmentQueue.push(data);
-        this.processQueue();
     }
 
-    private processQueue() {
+    private processVideoQueue() {
         if (
-            !this.sourceBuffer ||
-            this.isAppending ||
-            this.sourceBuffer.updating ||
-            this.segmentQueue.length === 0
+            !this.videoSourceBuffer ||
+            this.isVideoAppending ||
+            this.videoSourceBuffer.updating ||
+            this.videoQueue.length === 0
         ) {
             return;
         }
 
         const isSourceBufferValid = Array.from(
             this.mediaSource.sourceBuffers
-        ).some((buffer) => buffer === this.sourceBuffer);
+        ).some((buffer) => buffer === this.videoSourceBuffer);
 
         if (!isSourceBufferValid) {
-            console.error('SourceBuffer is no longer valid');
+            console.error('Video SourceBuffer is no longer valid');
             return;
         }
 
-        const segment = this.segmentQueue.shift();
+        const segment = this.videoQueue.shift();
         if (!segment) return;
 
-        this.isAppending = true;
+        this.isVideoAppending = true;
         try {
-            this.sourceBuffer.appendBuffer(segment);
+            this.videoSourceBuffer.appendBuffer(segment);
         } catch (e) {
-            console.error('Error appending buffer:', e);
-            this.isAppending = false;
+            console.error('Error appending video buffer:', e);
+            this.isVideoAppending = false;
+        }
+    }
+
+    private processAudioQueue() {
+        if (
+            !this.audioSourceBuffer ||
+            this.isAudioAppending ||
+            this.audioSourceBuffer.updating ||
+            this.audioQueue.length === 0
+        ) {
+            return;
+        }
+
+        const isSourceBufferValid = Array.from(
+            this.mediaSource.sourceBuffers
+        ).some((buffer) => buffer === this.audioSourceBuffer);
+
+        if (!isSourceBufferValid) {
+            console.error('Audio SourceBuffer is no longer valid');
+            return;
+        }
+
+        const segment = this.audioQueue.shift();
+        if (!segment) return;
+
+        this.isAudioAppending = true;
+        try {
+            this.audioSourceBuffer.appendBuffer(segment);
+        } catch (e) {
+            console.error('Error appending audio buffer:', e);
+            this.isAudioAppending = false;
         }
     }
 
@@ -385,8 +588,9 @@ export class MSEEngine {
         const isTimeBuffered = this.isTimeInBuffered(currentTime);
 
         if (!isTimeBuffered) {
-            this.clearBuffer().then(() => {
-                this.requestedSegments.clear();
+            this.clearBuffers().then(() => {
+                this.requestedSegments.video.clear();
+                this.requestedSegments.audio.clear();
 
                 const newSegmentIndex = Math.floor(currentTime / 3);
                 this.currentSegmentIndex = newSegmentIndex;
@@ -418,9 +622,14 @@ export class MSEEngine {
 
             const timeRemaining = bufferedEnd - this.video.currentTime;
 
-            if (timeRemaining < 5 && !this.isAppending) {
-                console.log('Buffer low — fetching more segments...');
-                this.fetchAndProcessNextSegment();
+            if (timeRemaining < 5 && !this.isFetching) {
+                const isAnyAppending =
+                    this.isVideoAppending || this.isAudioAppending;
+
+                if (!isAnyAppending) {
+                    console.log('Buffer low — fetching more segments...');
+                    this.fetchAndProcessNextSegment();
+                }
             }
         }, 1000);
     }
