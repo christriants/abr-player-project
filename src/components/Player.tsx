@@ -200,15 +200,13 @@ export const Player = ({
 
     useEffect(() => {
         const videoEl = videoRef.current;
-        if (!videoEl || !abrManager) return;
+        if (!videoEl || !abrManager || !engine) return;
 
         const updateDebugInfo = () => {
             const currentRendition = abrManager.getRendition();
             const estimatedBandwidth =
                 networkManagerRef?.current?.getBandwidthEstimate() || 0;
-            const bufferLength = videoEl.buffered.length
-                ? videoEl.buffered.end(0) - videoEl.currentTime
-                : 0;
+            const bufferLength = engine.getBufferedLength(videoEl.currentTime);
 
             onDebugInfoUpdate({
                 currentRendition: currentRendition

@@ -1,6 +1,8 @@
 import muxjs from 'mux.js';
 import { NetworkManager } from '../types/network-manager';
 
+const DEFAULT_SEGMENT_DURATION = 3;
+
 export class MSEEngine {
     private transmuxer: muxjs.mp4.Transmuxer;
     private audioTransmuxer?: muxjs.mp4.Transmuxer;
@@ -24,6 +26,8 @@ export class MSEEngine {
     private networkManager?: NetworkManager;
     private segmentFormat: 'ts' | 'fmp4' | 'unknown' = 'unknown';
     private initSegmentUrls?: { video?: string; audio?: string };
+    private isSeeking: boolean = false;
+    private segmentDuration: number = DEFAULT_SEGMENT_DURATION;
 
     requestedSegments: { video: Set<number>; audio: Set<number> } = {
         video: new Set(),
@@ -108,9 +112,10 @@ export class MSEEngine {
             this.startBufferMonitor();
         });
         this.video.addEventListener('seeking', this.onSeeking);
+        this.video.addEventListener('seeked', this.onSeeked);
     }
 
-    reset(): void {
+    async reset(): Promise<void> {
         this.stopBufferMonitor();
 
         if (this.videoSourceBuffer) {
@@ -142,13 +147,13 @@ export class MSEEngine {
 
         this.setup();
 
-        this.clearBuffers().then(() => {
-            this.requestedSegments.video.clear();
-            this.requestedSegments.audio.clear();
-            this.currentSegmentIndex = 0;
-            this.videoQueue = [];
-            this.audioQueue = [];
-        });
+        await this.clearBuffers();
+
+        this.requestedSegments.video.clear();
+        this.requestedSegments.audio.clear();
+        this.currentSegmentIndex = 0;
+        this.videoQueue = [];
+        this.audioQueue = [];
     }
 
     destroy() {
@@ -179,6 +184,8 @@ export class MSEEngine {
         this.initSegmentUrls = urls.initSegmentUrls;
         this.segmentUrls = urls.segmentUrls;
 
+        this.segmentDuration = this.calculateSegmentDuration();
+
         if (urls.segmentUrls.audio.length > 0) {
             const audioFormat = this.detectSegmentFormat(
                 urls.segmentUrls.audio[0]
@@ -194,7 +201,7 @@ export class MSEEngine {
 
         this.segmentFormat = this.detectSegmentFormat(firstSegmentUrl);
 
-        this.currentSegmentIndex = Math.floor(startTime / 3);
+        this.currentSegmentIndex = Math.floor(startTime / this.segmentDuration);
         this.fetchAndProcessNextSegment();
     }
 
@@ -231,6 +238,18 @@ export class MSEEngine {
             this.requestedSegments.video.clear();
             this.requestedSegments.audio.clear();
         });
+    }
+
+    private calculateSegmentDuration(): number {
+        const segmentCount =
+            this.segmentUrls.video.length || this.segmentUrls.audio.length;
+
+        if (segmentCount > 0 && this.duration > 0) {
+            const calculatedDuration = this.duration / segmentCount;
+            return calculatedDuration;
+        }
+
+        return DEFAULT_SEGMENT_DURATION;
     }
 
     private clearBuffer(sourceBuffer: SourceBuffer): Promise<void> {
@@ -293,7 +312,7 @@ export class MSEEngine {
         });
     }
 
-    private initSourceBuffers() {
+    private async initSourceBuffers() {
         const videoCodecs: string[] = [];
         const audioCodecs: string[] = [];
 
@@ -308,9 +327,6 @@ export class MSEEngine {
                 audioCodecs.push(codec);
             }
         }
-
-        const hasSeparateAudio = this.segmentUrls.audio.length > 0;
-        const hasSeparateVideo = this.segmentUrls.video.length > 0;
 
         if (videoCodecs.length > 0) {
             const videoMimeType = `video/mp4; codecs="${videoCodecs[0]}"`;
@@ -337,24 +353,18 @@ export class MSEEngine {
         if (this.segmentFormat === 'fmp4' && this.initSegmentUrls) {
             if (this.initSegmentUrls.video && this.videoSourceBuffer) {
                 console.log('Loading video init segment');
-                this.fetchSegment(this.initSegmentUrls.video)
-                    .then((initSegment) => {
-                        this.queueSegment(initSegment, 'video');
-                    })
-                    .catch((e) =>
-                        console.error('Error fetching video init segment:', e)
-                    );
+                const videoInitSegment = await this.fetchSegment(
+                    this.initSegmentUrls.video
+                );
+                this.queueSegment(videoInitSegment, 'video');
             }
 
             if (this.initSegmentUrls.audio && this.audioSourceBuffer) {
                 console.log('Loading audio init segment');
-                this.fetchSegment(this.initSegmentUrls.audio)
-                    .then((initSegment) => {
-                        this.queueSegment(initSegment, 'audio');
-                    })
-                    .catch((e) =>
-                        console.error('Error fetching audio init segment:', e)
-                    );
+                const audioInitSegment = await this.fetchSegment(
+                    this.initSegmentUrls.audio
+                );
+                this.queueSegment(audioInitSegment, 'audio');
             }
         }
     }
@@ -460,7 +470,7 @@ export class MSEEngine {
 
         this.isFetching = true;
 
-        const batchSize = 3;
+        const batchSize = 6;
         const startIndex = this.currentSegmentIndex;
 
         const fetchedSegments = await this.fetchSegments(startIndex, batchSize);
@@ -581,27 +591,49 @@ export class MSEEngine {
         }
     }
 
-    private onSeeking = () => {
+    private onSeeking = async () => {
         const currentTime = this.video.currentTime;
-        console.log('Seeking to:', currentTime);
-
         const isTimeBuffered = this.isTimeInBuffered(currentTime);
 
         if (!isTimeBuffered) {
-            this.clearBuffers().then(() => {
-                this.requestedSegments.video.clear();
-                this.requestedSegments.audio.clear();
+            this.isSeeking = true;
+            this.video.pause();
 
-                const newSegmentIndex = Math.floor(currentTime / 3);
-                this.currentSegmentIndex = newSegmentIndex;
+            await this.clearBuffers();
 
-                this.fetchAndProcessNextSegment();
-            });
-        } else {
-            console.log('Seeked to a time already buffered, skipping fetch');
+            this.requestedSegments.video.clear();
+            this.requestedSegments.audio.clear();
+
+            const maxSegmentIndex =
+                Math.max(
+                    this.segmentUrls.video.length,
+                    this.segmentUrls.audio.length
+                ) - 1;
+            const calculatedIndex = Math.floor(
+                currentTime / this.segmentDuration
+            );
+            const newSegmentIndex = Math.min(calculatedIndex, maxSegmentIndex);
+
+            this.currentSegmentIndex = newSegmentIndex;
+
+            this.fetchAndProcessNextSegment();
         }
     };
 
+    private onSeeked = () => {
+        if (!this.isSeeking) return;
+
+        const checkBufferedAndResume = () => {
+            if (this.isTimeInBuffered(this.video.currentTime)) {
+                this.isSeeking = false;
+                this.video.play();
+            } else {
+                setTimeout(checkBufferedAndResume, 100);
+            }
+        };
+
+        checkBufferedAndResume();
+    };
     private isTimeInBuffered(time: number): boolean {
         const buffered = this.video.buffered;
         for (let i = 0; i < buffered.length; i++) {
