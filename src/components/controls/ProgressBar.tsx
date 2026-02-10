@@ -1,19 +1,23 @@
+import { usePlayerStore, setPlayerState } from '../../store/playerStore';
 import { formatTime } from '../../utils/format-time';
 import './ProgressBar.css';
 
-interface ProgressBarProps {
-    currentTime: number;
-    duration: number;
-    handleSeek: (e: React.ChangeEvent<HTMLInputElement>) => void;
-    bufferedRanges: TimeRanges | null;
-}
+export const ProgressBar = () => {
+    const videoEl = usePlayerStore((state) => state.videoEl);
+    const currentTime = usePlayerStore((state) => state.currentTime);
+    const duration = usePlayerStore((state) => state.duration);
+    const bufferedRanges = usePlayerStore((state) => state.bufferedRanges);
 
-export const ProgressBar = ({
-    currentTime,
-    duration,
-    handleSeek,
-    bufferedRanges,
-}: ProgressBarProps) => {
+    const handleSeek = (e: Event) => {
+        if (!videoEl) return;
+
+        const target = e.target as HTMLInputElement;
+        const newTime = parseFloat(target.value);
+
+        videoEl.currentTime = newTime;
+        setPlayerState({ currentTime: newTime });
+    };
+
     const getBufferedSegments = () => {
         if (!bufferedRanges || !duration) return [];
 

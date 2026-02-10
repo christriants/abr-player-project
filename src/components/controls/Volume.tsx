@@ -1,3 +1,4 @@
+import { usePlayerStore, setPlayerState } from '../../store/playerStore';
 import './Volume.css';
 
 interface VolumeProps {
@@ -7,12 +8,22 @@ interface VolumeProps {
     handleVolumeChange: (e: Event) => void;
 }
 
-export const Volume = ({
-    volume,
-    isMuted,
-    toggleMute,
-    handleVolumeChange,
-}: VolumeProps) => {
+export const Volume = () => {
+    const volume = usePlayerStore((state) => state.volume);
+    const isMuted = usePlayerStore((state) => state.isMuted);
+    const toggleMute = () => {
+        setPlayerState({ isMuted: !isMuted });
+    };
+
+    const handleVolumeChange = (e: Event) => {
+        const target = e.target as HTMLInputElement;
+        const newVolume = parseFloat(target.value);
+        setPlayerState({
+            volume: newVolume,
+            isMuted: newVolume === 0,
+        });
+    };
+
     return (
         <>
             <button

@@ -26,6 +26,7 @@
     },
     "dependencies": {
         "hls.js": "^1.5.20",
-        "mux.js": "^6.3.0"
+        "mux.js": "^6.3.0",
+        "zustand": "^5.0.11"
     }
 }

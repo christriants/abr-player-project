@@ -44,7 +44,6 @@
     cursor: pointer;
     appearance: none;
     background: transparent;
-    z-index: 2;
 }
 
 .progress-bar::-webkit-slider-thumb {

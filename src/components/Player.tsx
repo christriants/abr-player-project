@@ -6,7 +6,7 @@ import {
     fetchPlaylist,
     fetchPlaylistData,
 } from '../utils/fetch-playlist';
-import type { Rendition, Renditions } from '../types/playback';
+import type { Rendition } from '../types/playback';
 import type { ABRManager, ABRManagerType } from '../types/abr-manager';
 import { FixedQualityAbrManager } from '../abr/FixedQualityAbrManager';
 import { BufferBasedAbrManager } from '../abr/BufferBasedAbrManager';
@@ -14,6 +14,7 @@ import { ThroughputAbrManager } from '../abr/ThroughputAbrManager';
 import { SimpleNetworkManager } from '../network-manager/SimpleNetworkManager';
 import { Controls } from './controls';
 import './Player.css';
+import { setPlayerState, usePlayerStore } from '../store/playerStore';
 
 type PlayerProps = {
     src: string;
@@ -31,94 +32,140 @@ export const Player = ({
     onDebugInfoUpdate,
 }: PlayerProps) => {
     const videoRef = useRef<HTMLVideoElement>(null);
-    const [engine, setEngine] = useState<MSEEngine | null>(null);
-    const [renditions, setRenditions] = useState<Renditions | null>(null);
-    const [abrManager, setAbrManager] = useState<ABRManager | null>(null);
     const networkManagerRef = useRef<SimpleNetworkManager | null>(null);
-
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [currentTime, setCurrentTime] = useState(0);
-    const [duration, setDuration] = useState(0);
-    const [volume, setVolume] = useState(1);
-    const [isMuted, setIsMuted] = useState(true);
-    const [isInitialLoading, setIsInitialLoading] = useState(true);
-    const [isBuffering, setIsBuffering] = useState(false);
-    const [bufferedRanges, setBufferedRanges] = useState<TimeRanges | null>(
-        null
-    );
-
-    const [showControls, setShowControls] = useState(true);
     const hideControlsTimeoutRef = useRef<number | null>(null);
+
+    const videoEl = usePlayerStore((state) => state.videoEl);
+    const engine = usePlayerStore((state) => state.engine);
+    const abrManager = usePlayerStore((state) => state.abrManager);
+    const isPlaying = usePlayerStore((state) => state.isPlaying);
+    const isBuffering = usePlayerStore((state) => state.isBuffering);
+    const isInitialLoading = usePlayerStore((state) => state.isInitialLoading);
 
     const resetControlsTimeout = () => {
         if (hideControlsTimeoutRef.current) {
             clearTimeout(hideControlsTimeoutRef.current);
         }
 
-        setShowControls(true);
+        setPlayerState({ showControls: true });
 
-        if (isPlaying && !videoRef.current?.paused) {
+        if (isPlaying && !videoEl?.paused) {
             hideControlsTimeoutRef.current = window.setTimeout(() => {
-                setShowControls(false);
+                setPlayerState({ showControls: false });
             }, 2000);
         }
     };
 
-    const handleMouseMove = () => {
-        resetControlsTimeout();
-    };
+    const handleMouseMove = () => resetControlsTimeout();
 
     const handleMouseLeave = () => {
         if (isPlaying) {
             hideControlsTimeoutRef.current = window.setTimeout(() => {
-                setShowControls(false);
+                setPlayerState({ showControls: false });
             }, 2000);
         }
     };
 
-    // -------- Video Event Handlers --------
     const onPlaybackStalled = () => {
         console.warn('Playback stalled');
-        setIsBuffering(true);
+        setPlayerState({ isBuffering: true });
         if (abrManager && typeof abrManager.onPlaybackStall === 'function') {
             abrManager.onPlaybackStall();
         }
     };
 
-    const handlePlaying = () => {
-        console.log('Playback resumed');
-        setIsBuffering(false);
-        setIsPlaying(true);
-    };
-
-    const handleError = () => {
-        console.error('Video error:', videoRef?.current?.error);
-    };
-
-    const handleCanPlay = () => {
-        setIsInitialLoading(false);
-        videoRef.current?.play().catch((e) => console.error('Play error:', e));
-    };
-
-    const handleEnded = () => {
-        setIsPlaying(false);
-    };
-
-    const handleProgress = () => {
+    useEffect(() => {
         const video = videoRef.current;
         if (!video) return;
-        setBufferedRanges(video.buffered);
-    };
+
+        setPlayerState({ videoEl: video });
+
+        const handleLoadedMetadata = () => {
+            setPlayerState({ duration: video.duration });
+        };
+
+        const handleWaiting = () => {
+            console.log('Video is waiting');
+            onPlaybackStalled();
+        };
+
+        const handleTimeUpdate = () => {
+            const buffered = video.buffered;
+            const currentTime = video.currentTime;
+
+            setPlayerState({
+                currentTime,
+                duration: video.duration,
+            });
+
+            let isStalled = true;
+            for (let i = 0; i < buffered.length; i++) {
+                if (
+                    currentTime >= buffered.start(i) &&
+                    currentTime <= buffered.end(i)
+                ) {
+                    isStalled = false;
+                    break;
+                }
+            }
+
+            if (isStalled) {
+                console.log('Detected potential stall during timeupdate');
+                onPlaybackStalled();
+            }
+        };
+
+        const handlePlaying = () => {
+            console.log('Playback resumed');
+            setPlayerState({ isBuffering: false, isPlaying: true });
+        };
+
+        const handleEnded = () => {
+            setPlayerState({ isPlaying: false });
+        };
+
+        const handleError = () => {
+            console.error('Video error:', video.error);
+        };
+
+        const handleCanPlay = () => {
+            setPlayerState({ isInitialLoading: false });
+            video.play().catch((e) => console.error('Play error:', e));
+        };
+
+        const handleProgress = () => {
+            setPlayerState({ bufferedRanges: video.buffered });
+        };
+
+        video.addEventListener('loadedmetadata', handleLoadedMetadata);
+        video.addEventListener('waiting', handleWaiting);
+        video.addEventListener('timeupdate', handleTimeUpdate);
+        video.addEventListener('playing', handlePlaying);
+        video.addEventListener('ended', handleEnded);
+        video.addEventListener('error', handleError);
+        video.addEventListener('canplay', handleCanPlay);
+        video.addEventListener('progress', handleProgress);
+
+        return () => {
+            video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            video.removeEventListener('waiting', handleWaiting);
+            video.removeEventListener('timeupdate', handleTimeUpdate);
+            video.removeEventListener('playing', handlePlaying);
+            video.removeEventListener('ended', handleEnded);
+            video.removeEventListener('error', handleError);
+            video.removeEventListener('canplay', handleCanPlay);
+            video.removeEventListener('progress', handleProgress);
+        };
+    }, []);
 
     useEffect(() => {
-        if (!src || !videoRef.current) return;
+        if (!src || !videoEl) return;
 
         clearPlaylistCache();
 
         async function initializePlayer() {
-            const videoEl = videoRef.current!;
             const renditions = await fetchManifest(src);
-            setRenditions(renditions);
+            setPlayerState({ renditions });
 
             if (!renditions.video.length) return;
 
@@ -142,6 +189,7 @@ export const Player = ({
 
             const codecs = videoRendition.codecs;
 
+            // Cleanup old managers
             if (abrManager) {
                 abrManager.destroy();
             }
@@ -158,6 +206,9 @@ export const Player = ({
                 await engine.reset();
                 mseInstance = engine;
             } else {
+                if (!videoEl) {
+                    throw new Error('Video element not found');
+                }
                 mseInstance = new MSEEngine(
                     videoEl,
                     videoDuration,
@@ -165,7 +216,7 @@ export const Player = ({
                     networkManagerRef.current
                 );
 
-                setEngine(mseInstance);
+                setPlayerState({ engine: mseInstance });
                 await mseInstance.loadSegments(
                     {
                         initSegmentUrls: {
@@ -193,13 +244,17 @@ export const Player = ({
                 throw new Error(`Unsupported ABR type: ${abr}`);
             }
 
+            if (!videoEl) {
+                throw new Error('Video element not found');
+            }
+
             abrManagerInstance.initialize(
                 videoEl,
                 renditions,
                 mseInstance,
                 networkManager
             );
-            setAbrManager(abrManagerInstance);
+            setPlayerState({ abrManager: abrManagerInstance });
         }
 
         initializePlayer();
@@ -208,66 +263,9 @@ export const Player = ({
             abrManager?.destroy();
             engine?.destroy();
         };
-    }, [src, abr]);
+    }, [src, abr, videoEl]);
 
     useEffect(() => {
-        const videoEl = videoRef.current;
-        if (!videoEl) return;
-
-        const handleLoadedMetadata = () => {
-            setDuration(videoEl.duration);
-        };
-
-        const handleWaiting = () => {
-            console.log('Video is waiting');
-            onPlaybackStalled();
-        };
-
-        const handleTimeUpdate = () => {
-            const buffered = videoEl.buffered;
-            const currentTime = videoEl.currentTime;
-            setCurrentTime(currentTime);
-            setDuration(videoEl.duration);
-
-            let isStalled = true;
-            for (let i = 0; i < buffered.length; i++) {
-                if (
-                    currentTime >= buffered.start(i) &&
-                    currentTime <= buffered.end(i)
-                ) {
-                    isStalled = false;
-                    break;
-                }
-            }
-
-            if (isStalled) {
-                console.log('Detected potential stall during timeupdate');
-                onPlaybackStalled();
-            }
-        };
-
-        videoEl.addEventListener('loadedmetadata', handleLoadedMetadata);
-        videoEl.addEventListener('waiting', handleWaiting);
-        videoEl.addEventListener('timeupdate', handleTimeUpdate);
-        videoEl.addEventListener('playing', handlePlaying);
-        videoEl.addEventListener('ended', handleEnded);
-        videoEl.addEventListener('error', handleError);
-        videoEl.addEventListener('canplay', handleCanPlay);
-        videoEl.addEventListener('progress', handleProgress);
-
-        return () => {
-            videoEl.removeEventListener('loadedmetadata', handleLoadedMetadata);
-            videoEl.removeEventListener('error', handleError);
-            videoEl.removeEventListener('canplay', handleCanPlay);
-            videoEl.removeEventListener('playing', handlePlaying);
-            videoEl.removeEventListener('ended', handleEnded);
-            videoEl.removeEventListener('waiting', handleWaiting);
-            videoEl.removeEventListener('timeupdate', handleTimeUpdate);
-            videoEl.removeEventListener('progress', handleProgress);
-        };
-    }, []);
-    useEffect(() => {
-        const videoEl = videoRef.current;
         if (!videoEl || !abrManager || !engine) return;
 
         const updateDebugInfo = () => {
@@ -277,20 +275,15 @@ export const Player = ({
             const bufferLength = engine.getBufferedLength(videoEl.currentTime);
 
             onDebugInfoUpdate({
-                currentRendition: currentRendition
-                    ? currentRendition.resolution
-                    : 'Unknown',
+                currentRendition: currentRendition?.resolution ?? 'Unknown',
                 estimatedBandwidth,
                 bufferLength,
             });
         };
 
         const interval = setInterval(updateDebugInfo, 1000);
-
-        return () => {
-            clearInterval(interval);
-        };
-    }, [abrManager, renditions, onDebugInfoUpdate]);
+        return () => clearInterval(interval);
+    }, [videoEl, abrManager, engine, onDebugInfoUpdate]);
 
     useEffect(() => {
         resetControlsTimeout();
@@ -308,7 +301,7 @@ export const Player = ({
         <div className="player-container">
             <div
                 className="video-wrapper"
-                onMouseEnter={handleMouseMove}
+                onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}
             >
                 <video
@@ -319,29 +312,13 @@ export const Player = ({
                     muted
                     controls={false}
                     disablePictureInPicture
-                ></video>
+                />
                 {(isInitialLoading || isBuffering) && (
                     <div className="spinner-overlay">
                         <div className="spinner"></div>
                     </div>
                 )}
-                <Controls
-                    videoRef={videoRef}
-                    isPlaying={isPlaying}
-                    isMuted={isMuted}
-                    volume={volume}
-                    currentTime={currentTime}
-                    duration={duration}
-                    setIsPlaying={setIsPlaying}
-                    setIsMuted={setIsMuted}
-                    setVolume={setVolume}
-                    setCurrentTime={setCurrentTime}
-                    showControls={showControls}
-                    abrManager={abrManager}
-                    abr={abr}
-                    renditions={renditions || undefined}
-                    bufferedRanges={bufferedRanges}
-                />
+                <Controls abr={abr} />
             </div>
         </div>
     );

@@ -38,7 +38,6 @@
     padding: 8px 0;
     min-width: 120px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    z-index: 1000;
 }
 
 .quality-option {

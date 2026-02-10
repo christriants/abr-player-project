@@ -2,29 +2,38 @@ import { useState, useRef, useEffect } from 'preact/hooks';
 import { Renditions } from '../../types/playback';
 import './QualitySelector.css';
 import { ABRManagerType } from '../../types/abr-manager';
+import { usePlayerStore } from '../../store/playerStore';
+import { FixedQualityAbrManager } from '../../abr/FixedQualityAbrManager';
 
 type QualitySelectorProps = {
-    renditions: Renditions | undefined;
     abr: ABRManagerType;
-    onSelect: (index: number) => void;
 };
 
 export const QualitySelector = ({
-    renditions,
     abr,
-    onSelect,
 }: QualitySelectorProps) => {
+    const renditions = usePlayerStore((state) => state.renditions);
+    const abrManager = usePlayerStore((state) => state.abrManager);
+
     if (!renditions || renditions.video.length === 0) {
         return null;
     }
 
+    const handleQualityChange = async (index: number) => {
+        if (abr === 'fixed' && abrManager instanceof FixedQualityAbrManager) {
+            await abrManager.setManualRendition(index);
+        }
+    };
+
     const [isOpen, setIsOpen] = useState(false);
-    const [selectedIndex, setSelectedIndex] = useState(abr === 'fixed' ? 0 : -1);
+    const [selectedIndex, setSelectedIndex] = useState(
+        abr === 'fixed' ? 0 : -1
+    );
     const menuRef = useRef<HTMLDivElement>(null);
 
     const handleSelect = (index: number) => {
         setSelectedIndex(index);
-        onSelect(index);
+        handleQualityChange(index);
         setIsOpen(false);
     };
 
