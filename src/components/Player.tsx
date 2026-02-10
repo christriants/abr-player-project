@@ -6,13 +6,14 @@ import {
     fetchPlaylist,
     fetchPlaylistData,
 } from '../utils/fetch-playlist';
-import { QualitySelector } from './QualitySelector';
 import type { Rendition, Renditions } from '../types/playback';
 import type { ABRManager, ABRManagerType } from '../types/abr-manager';
 import { FixedQualityAbrManager } from '../abr/FixedQualityAbrManager';
 import { BufferBasedAbrManager } from '../abr/BufferBasedAbrManager';
 import { ThroughputAbrManager } from '../abr/ThroughputAbrManager';
 import { SimpleNetworkManager } from '../network-manager/SimpleNetworkManager';
+import { Controls } from './controls';
+import './Player.css';
 
 type PlayerProps = {
     src: string;
@@ -35,17 +36,78 @@ export const Player = ({
     const [abrManager, setAbrManager] = useState<ABRManager | null>(null);
     const networkManagerRef = useRef<SimpleNetworkManager | null>(null);
 
-    const handleQualityChange = async (index: number) => {
-        if (abr === 'fixed' && abrManager instanceof FixedQualityAbrManager) {
-            await abrManager.setManualRendition(index);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const [volume, setVolume] = useState(1);
+    const [isMuted, setIsMuted] = useState(true);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [isBuffering, setIsBuffering] = useState(false);
+    const [bufferedRanges, setBufferedRanges] = useState<TimeRanges | null>(
+        null
+    );
+
+    const [showControls, setShowControls] = useState(true);
+    const hideControlsTimeoutRef = useRef<number | null>(null);
+
+    const resetControlsTimeout = () => {
+        if (hideControlsTimeoutRef.current) {
+            clearTimeout(hideControlsTimeoutRef.current);
+        }
+
+        setShowControls(true);
+
+        if (isPlaying && !videoRef.current?.paused) {
+            hideControlsTimeoutRef.current = window.setTimeout(() => {
+                setShowControls(false);
+            }, 2000);
         }
     };
 
+    const handleMouseMove = () => {
+        resetControlsTimeout();
+    };
+
+    const handleMouseLeave = () => {
+        if (isPlaying) {
+            hideControlsTimeoutRef.current = window.setTimeout(() => {
+                setShowControls(false);
+            }, 2000);
+        }
+    };
+
+    // -------- Video Event Handlers --------
     const onPlaybackStalled = () => {
         console.warn('Playback stalled');
+        setIsBuffering(true);
         if (abrManager && typeof abrManager.onPlaybackStall === 'function') {
             abrManager.onPlaybackStall();
         }
+    };
+
+    const handlePlaying = () => {
+        console.log('Playback resumed');
+        setIsBuffering(false);
+        setIsPlaying(true);
+    };
+
+    const handleError = () => {
+        console.error('Video error:', videoRef?.current?.error);
+    };
+
+    const handleCanPlay = () => {
+        setIsInitialLoading(false);
+        videoRef.current?.play().catch((e) => console.error('Play error:', e));
+    };
+
+    const handleEnded = () => {
+        setIsPlaying(false);
+    };
+
+    const handleProgress = () => {
+        const video = videoRef.current;
+        if (!video) return;
+        setBufferedRanges(video.buffered);
     };
 
     useEffect(() => {
@@ -152,6 +214,10 @@ export const Player = ({
         const videoEl = videoRef.current;
         if (!videoEl) return;
 
+        const handleLoadedMetadata = () => {
+            setDuration(videoEl.duration);
+        };
+
         const handleWaiting = () => {
             console.log('Video is waiting');
             onPlaybackStalled();
@@ -160,6 +226,8 @@ export const Player = ({
         const handleTimeUpdate = () => {
             const buffered = videoEl.buffered;
             const currentTime = videoEl.currentTime;
+            setCurrentTime(currentTime);
+            setDuration(videoEl.duration);
 
             let isStalled = true;
             for (let i = 0; i < buffered.length; i++) {
@@ -178,26 +246,26 @@ export const Player = ({
             }
         };
 
+        videoEl.addEventListener('loadedmetadata', handleLoadedMetadata);
         videoEl.addEventListener('waiting', handleWaiting);
         videoEl.addEventListener('timeupdate', handleTimeUpdate);
-
-        const handleError = () => {
-            console.error('Video error:', videoEl.error);
-        };
-
-        const handleCanPlay = () => {
-            videoEl.play().catch((e) => console.error('Play error:', e));
-        };
-
+        videoEl.addEventListener('playing', handlePlaying);
+        videoEl.addEventListener('ended', handleEnded);
         videoEl.addEventListener('error', handleError);
         videoEl.addEventListener('canplay', handleCanPlay);
+        videoEl.addEventListener('progress', handleProgress);
 
         return () => {
+            videoEl.removeEventListener('loadedmetadata', handleLoadedMetadata);
             videoEl.removeEventListener('error', handleError);
             videoEl.removeEventListener('canplay', handleCanPlay);
+            videoEl.removeEventListener('playing', handlePlaying);
+            videoEl.removeEventListener('ended', handleEnded);
+            videoEl.removeEventListener('waiting', handleWaiting);
+            videoEl.removeEventListener('timeupdate', handleTimeUpdate);
+            videoEl.removeEventListener('progress', handleProgress);
         };
     }, []);
-
     useEffect(() => {
         const videoEl = videoRef.current;
         if (!videoEl || !abrManager || !engine) return;
@@ -224,15 +292,57 @@ export const Player = ({
         };
     }, [abrManager, renditions, onDebugInfoUpdate]);
 
+    useEffect(() => {
+        resetControlsTimeout();
+    }, [isPlaying]);
+
+    useEffect(() => {
+        return () => {
+            if (hideControlsTimeoutRef.current) {
+                clearTimeout(hideControlsTimeoutRef.current);
+            }
+        };
+    }, []);
+
     return (
-        <>
-            <video ref={videoRef} width="640" height="360" controls></video>
-            {abr === 'fixed' && renditions && (
-                <QualitySelector
-                    renditions={renditions}
-                    onSelect={handleQualityChange}
+        <div className="player-container">
+            <div
+                className="video-wrapper"
+                onMouseEnter={handleMouseMove}
+                onMouseLeave={handleMouseLeave}
+            >
+                <video
+                    ref={videoRef}
+                    width="640"
+                    height="360"
+                    autoPlay
+                    muted
+                    controls={false}
+                    disablePictureInPicture
+                ></video>
+                {(isInitialLoading || isBuffering) && (
+                    <div className="spinner-overlay">
+                        <div className="spinner"></div>
+                    </div>
+                )}
+                <Controls
+                    videoRef={videoRef}
+                    isPlaying={isPlaying}
+                    isMuted={isMuted}
+                    volume={volume}
+                    currentTime={currentTime}
+                    duration={duration}
+                    setIsPlaying={setIsPlaying}
+                    setIsMuted={setIsMuted}
+                    setVolume={setVolume}
+                    setCurrentTime={setCurrentTime}
+                    showControls={showControls}
+                    abrManager={abrManager}
+                    abr={abr}
+                    renditions={renditions || undefined}
+                    bufferedRanges={bufferedRanges}
                 />
-            )}
-        </>
+            </div>
+        </div>
     );
 };

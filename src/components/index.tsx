@@ -1,4 +1,4 @@
 import { Player } from './Player';
-import { QualitySelector } from './QualitySelector';
+import { QualitySelector } from './controls/QualitySelector';
 
 export { Player, QualitySelector };
