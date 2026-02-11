@@ -3,6 +3,8 @@ import { useEffect, useState } from 'preact/hooks';
 import type { Renditions } from '../types/playback';
 import type { ABRManager } from '../types/abr-manager';
 import type { MSEEngine } from '../playback-engine/MSEEngine';
+import { TextTrack } from '../types/text-tracks';
+import { TextTrackManager } from '../text-track-manager/text-track-manager';
 
 interface PlayerState {
     videoEl: HTMLVideoElement | null;
@@ -18,6 +20,8 @@ interface PlayerState {
     renditions: Renditions | null;
     abrManager: ABRManager | null;
     engine: MSEEngine | null;
+    textTrackManager: TextTrackManager | null;
+    textTracks: TextTrack[];
 }
 
 export const playerStore = createStore<PlayerState>(() => ({
@@ -34,6 +38,8 @@ export const playerStore = createStore<PlayerState>(() => ({
     renditions: null,
     abrManager: null,
     engine: null,
+    textTrackManager: null,
+    textTracks: [],
 }));
 
 let prevState = playerStore.getState();

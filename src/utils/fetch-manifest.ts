@@ -1,4 +1,5 @@
 import { Rendition, Renditions } from '../types/playback';
+import { TextTrack } from '../types/text-tracks';
 
 export const fetchManifest = async (url: string): Promise<Renditions> => {
     const response = await fetch(url);
@@ -7,6 +8,19 @@ export const fetchManifest = async (url: string): Promise<Renditions> => {
 
     const videoRenditions: Rendition[] = [];
     const audioRenditions: Rendition[] = [];
+    const textTracks: TextTrack[] = [];
+
+    // baseUrl for resolving relative URIs in the manifest
+    const baseUrl = (() => {
+        try {
+            const parsed = new URL(url);
+            // keep origin + path up to last slash
+            return parsed.origin + parsed.pathname.replace(/\/[^/]*$/, '/');
+        } catch {
+            // fallback: strip query and filename
+            return url.split('?')[0].replace(/\/[^/]*$/, '/');
+        }
+    })();
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -18,7 +32,12 @@ export const fetchManifest = async (url: string): Promise<Renditions> => {
             const codecs = line.match(/CODECS="([^"]+)"/)?.[1];
             const relativeUrl = lines[i + 1];
 
-            if (bandwidth && resolution && relativeUrl) {
+            if (
+                bandwidth &&
+                resolution &&
+                relativeUrl &&
+                !relativeUrl.startsWith('#')
+            ) {
                 const absoluteUrl = new URL(relativeUrl, url).href;
 
                 videoRenditions.push({
@@ -26,19 +45,21 @@ export const fetchManifest = async (url: string): Promise<Renditions> => {
                     resolution,
                     url: absoluteUrl,
                     totalDuration: 0,
-                    codecs: codecs ? codecs.split(',') : [],
+                    codecs: codecs
+                        ? codecs.split(',').map((c) => c.trim())
+                        : [],
                     type: 'video',
                 });
             }
         }
 
         // Audio renditions from EXT-X-MEDIA
-        if (line.startsWith('#EXT-X-MEDIA:TYPE=AUDIO')) {
+        if (line.startsWith('#EXT-X-MEDIA:') && line.includes('TYPE=AUDIO')) {
             const groupId = line.match(/GROUP-ID="([^"]+)"/)?.[1];
-            const language = line.match(/LANGUAGE="([^"]+)"/)?.[1];
+            const language = line.match(/LANGUAGE="([^"]+)"/)?.[1] || 'und';
             const audioUrl = line.match(/URI="([^"]+)"/)?.[1];
 
-            if (groupId && language && audioUrl) {
+            if (groupId && audioUrl) {
                 const absoluteUrl = new URL(audioUrl, url).href;
 
                 audioRenditions.push({
@@ -51,6 +72,30 @@ export const fetchManifest = async (url: string): Promise<Renditions> => {
                 });
             }
         }
+
+        if (
+            line.startsWith('#EXT-X-MEDIA:') &&
+            line.includes('TYPE=SUBTITLES')
+        ) {
+            const groupId = line.match(/GROUP-ID="([^"]+)"/)?.[1];
+            const name = line.match(/NAME="([^"]+)"/)?.[1] || 'Unknown';
+            const language = line.match(/LANGUAGE="([^"]+)"/)?.[1] || 'en';
+            const uri = line.match(/URI="([^"]+)"/)?.[1];
+            const isDefault = line.includes('DEFAULT=YES');
+
+            if (uri) {
+                const trackUrl = new URL(uri, baseUrl).href;
+
+                textTracks.push({
+                    name,
+                    language,
+                    url: trackUrl,
+                    default: isDefault,
+                    kind: groupId === 'chapters' ? 'chapters' : 'subtitles',
+                });
+            }
+        }
+        console.log('Text tracks found:', textTracks);
     }
 
     console.log('Available renditions:', [
@@ -61,5 +106,6 @@ export const fetchManifest = async (url: string): Promise<Renditions> => {
     return {
         video: videoRenditions,
         audio: audioRenditions,
+        textTracks: textTracks.length > 0 ? textTracks : undefined,
     };
 };

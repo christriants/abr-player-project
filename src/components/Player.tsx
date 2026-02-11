@@ -15,6 +15,7 @@ import { SimpleNetworkManager } from '../network-manager/SimpleNetworkManager';
 import { Controls } from './controls';
 import './Player.css';
 import { setPlayerState, usePlayerStore } from '../store/playerStore';
+import { TextTrackManager } from '../text-track-manager/text-track-manager';
 
 type PlayerProps = {
     src: string;
@@ -32,6 +33,7 @@ export const Player = ({
     onDebugInfoUpdate,
 }: PlayerProps) => {
     const videoRef = useRef<HTMLVideoElement>(null);
+    const textTrackManager = useRef<TextTrackManager | null>(null);
     const networkManagerRef = useRef<SimpleNetworkManager | null>(null);
     const hideControlsTimeoutRef = useRef<number | null>(null);
 
@@ -41,6 +43,7 @@ export const Player = ({
     const isPlaying = usePlayerStore((state) => state.isPlaying);
     const isBuffering = usePlayerStore((state) => state.isBuffering);
     const isInitialLoading = usePlayerStore((state) => state.isInitialLoading);
+    const textTracks = usePlayerStore((state) => state.textTracks);
 
     const resetControlsTimeout = () => {
         if (hideControlsTimeoutRef.current) {
@@ -166,6 +169,13 @@ export const Player = ({
         async function initializePlayer() {
             const renditions = await fetchManifest(src);
             setPlayerState({ renditions });
+            if (renditions.textTracks?.length && videoEl) {
+                textTrackManager.current = new TextTrackManager(videoEl);
+                setPlayerState({
+                    textTrackManager: textTrackManager.current,
+                    textTracks: renditions.textTracks,
+                });
+            }
 
             if (!renditions.video.length) return;
 
@@ -189,13 +199,16 @@ export const Player = ({
 
             const codecs = videoRendition.codecs;
 
-            // Cleanup old managers
             if (abrManager) {
                 abrManager.destroy();
             }
 
             if (networkManagerRef.current) {
                 networkManagerRef.current.destroy();
+            }
+
+            if (textTrackManager.current) {
+                textTrackManager.current.clear();
             }
 
             const networkManager = new SimpleNetworkManager();
@@ -257,11 +270,17 @@ export const Player = ({
             setPlayerState({ abrManager: abrManagerInstance });
         }
 
+        if (textTracks.length) {
+            textTrackManager.current = new TextTrackManager(videoEl!);
+            setPlayerState({ textTrackManager: textTrackManager.current });
+        }
+
         initializePlayer();
 
         return () => {
             abrManager?.destroy();
             engine?.destroy();
+            textTrackManager.current?.clear();
         };
     }, [src, abr, videoEl]);
 
@@ -297,6 +316,25 @@ export const Player = ({
         };
     }, []);
 
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video || !textTracks.length) return;
+
+        while (video.firstChild) {
+            video.removeChild(video.firstChild);
+        }
+
+        textTracks.forEach((track) => {
+            const textTrack = video.addTextTrack(
+                track.kind,
+                track.name,
+                track.language
+            );
+
+            textTrack.mode = track.default ? 'showing' : 'hidden';
+        });
+    }, []);
+
     return (
         <div className="player-container">
             <div
@@ -310,8 +348,8 @@ export const Player = ({
                     height="360"
                     autoPlay
                     muted
-                    controls={false}
                     disablePictureInPicture
+                    crossOrigin="anonymous"
                 />
                 {(isInitialLoading || isBuffering) && (
                     <div className="spinner-overlay">

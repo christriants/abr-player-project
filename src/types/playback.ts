@@ -1,3 +1,5 @@
+import { TextTrack } from "./text-tracks";
+
 export type Rendition = {
     resolution: string;
     bandwidth: number;
@@ -10,4 +12,5 @@ export type Rendition = {
 export type Renditions = {
     video: Rendition[];
     audio: Rendition[];
+    textTracks?: TextTrack[];
 };

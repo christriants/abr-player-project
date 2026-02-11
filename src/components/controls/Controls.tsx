@@ -8,6 +8,7 @@ import {
 } from './index';
 import './Controls.css';
 import { usePlayerStore } from '../../store/playerStore';
+import { Subtitles } from './Subtitles';
 
 interface ControlsProps {
     abr: ABRManagerType; // Only keep abr type since it's config, not state
@@ -15,6 +16,7 @@ interface ControlsProps {
 
 export const Controls = ({ abr }: ControlsProps) => {
     const showControls = usePlayerStore((state) => state.showControls);
+    const textTracks = usePlayerStore((state) => state.textTracks);
 
     return (
         <div className={`controls ${showControls ? 'visible' : 'hidden'}`}>
@@ -24,6 +26,7 @@ export const Controls = ({ abr }: ControlsProps) => {
             <QualitySelector
                 abr={abr}
             />
+            {!!textTracks.length && <Subtitles />}
             <FullscreenButton />
         </div>
     );
